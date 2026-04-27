@@ -1,0 +1,650 @@
+{% extends "base.html" %}
+
+{% block title %}Huellas Lab — Analizavet{% endblock %}
+
+{% block extra_head %}
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<style>
+/* ── Dashboard Header ──────────────────────────────────────────────────────── */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: var(--color-header-bg);
+  color: var(--color-header-text);
+  border-bottom: 1px solid #334155;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.header-logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.header-subtitle {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  margin-left: 0.5rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn-header {
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: opacity 0.2s;
+}
+
+.btn-header:hover {
+  opacity: 0.9;
+}
+
+.btn-generate-pdf {
+  background: #059669;
+  color: white;
+}
+
+.btn-upload-lis {
+  background: #3b82f6;
+  color: white;
+}
+
+/* ── Status Bar (Adapters) ──────────────────────────────────────────────────── */
+.status-bar {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.adapter-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  min-width: 180px;
+}
+
+.adapter-icon {
+  font-size: 1.25rem;
+}
+
+.adapter-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.adapter-status {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.adapter-status.active {
+  background: #10b981;
+}
+
+.adapter-status.inactive {
+  background: #dc2626;
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+/* ── Reception Section ─────────────────────────────────────────────────────── */
+.reception-section {
+  margin: 1rem 1.5rem;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.reception-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--color-panel-bg);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.reception-header:hover {
+  background: #f1f5f9;
+}
+
+.reception-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.reception-badge {
+  background: #dc2626;
+  color: white;
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.reception-content {
+  padding: 1rem;
+}
+
+.reception-status-msg {
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-style: italic;
+  padding: 1rem;
+  text-align: center;
+}
+
+.pending-patients-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pending-patient-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.pending-patient-item:hover {
+  background: #f1f5f9;
+}
+
+.pending-patient-info {
+  flex: 1;
+}
+
+.pending-patient-name {
+  font-weight: 600;
+  color: #374151;
+}
+
+.pending-patient-meta {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.pending-patient-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-delete-patient {
+  background: transparent;
+  border: none;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  transition: background 0.2s;
+}
+
+.btn-delete-patient:hover {
+  background: #fef2f2;
+}
+
+/* ── New Exam Button ────────────────────────────────────────────────────────── */
+.new-exam-section {
+  margin: 1rem 1.5rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.btn-new-exam {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-new-exam:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-new-exam .icon {
+  font-size: 1.5rem;
+}
+
+/* ── Two Column Layout ──────────────────────────────────────────────────────── */
+.taller-workspace {
+  display: grid;
+  grid-template-columns: 60fr 40fr;
+  gap: 1rem;
+  margin: 0 1.5rem 1.5rem;
+  min-height: calc(100vh - 280px);
+}
+
+.workspace-left,
+.workspace-right {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-header {
+  padding: 0.75rem 1rem;
+  background: var(--color-panel-bg);
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.workspace-content {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* ── Patient Form ────────────────────────────────────────────────────────────── */
+.patient-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.form-group label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.form-group input,
+.form-group select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* ── Lab Values Table ────────────────────────────────────────────────────────── */
+.lab-values-section {
+  margin-top: 1.5rem;
+}
+
+.lab-values-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.lab-values-table th {
+  background: var(--color-panel-bg);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.lab-values-table td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.lab-values-table tr:hover {
+  background: #f8fafc;
+}
+
+.value-input-sm {
+  width: 5rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.value-input-sm:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+/* ── PDF Preview ─────────────────────────────────────────────────────────────── */
+.pdf-preview-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-preview-frame {
+  flex: 1;
+  border: none;
+  width: 100%;
+  min-height: 400px;
+  background: #f8fafc;
+}
+
+.pdf-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  padding: 2rem;
+  text-align: center;
+}
+
+.pdf-placeholder-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Loading States ──────────────────────────────────────────────────────────── */
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator {
+  display: inline;
+}
+</style>
+{% endblock %}
+
+{% block navbar_info %}
+<!-- Dashboard has its own header -->
+{% endblock %}
+
+{% block content %}
+<!-- Dashboard Header -->
+<div class="dashboard-header">
+  <div class="header-left">
+    <span class="header-logo">🐾 Huellas Lab</span>
+    <span class="header-subtitle">— Analizavet</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn-header btn-generate-pdf" onclick="alert('Generar PDF - en desarrollo')">
+      📄 Generar PDF
+    </button>
+    <button class="btn-header btn-upload-lis" onclick="alert('Subir LIS - en desarrollo')">
+      ⬆️ Subir LIS
+    </button>
+  </div>
+</div>
+
+<!-- Status Bar with Adapters -->
+<div class="status-bar"
+     id="adapters-status"
+     hx-get="/api/adapters/status"
+     hx-trigger="load, every 5s"
+     hx-swap="innerHTML">
+  {% for adapter in adapters %}
+  <div class="adapter-card">
+    <span class="adapter-icon">🩸</span>
+    <span class="adapter-name">{{ adapter.name }}</span>
+    <span class="adapter-status {{ 'active' if adapter.is_running else 'inactive' }}"
+          title="{{ 'Conectado' if adapter.is_running else 'Desconectado' }}"></span>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Reception Section -->
+<div class="reception-section">
+  <div class="reception-header" onclick="toggleReception()">
+    <div class="reception-title">
+      <span>📥</span>
+      <span>Recepción de Pacientes</span>
+      {% if has_pending_patients %}
+      <span class="reception-badge">{{ pending_patients|length }}</span>
+      {% endif %}
+    </div>
+    <span id="reception-toggle-icon">▼</span>
+  </div>
+  <div class="reception-content" id="reception-content">
+    {% if has_pending_patients %}
+      <div class="pending-patients-list"
+           hx-get="/taller/pending-patients"
+           hx-trigger="every 5s"
+           hx-swap="innerHTML">
+        {% for patient in pending_patients %}
+        <div class="pending-patient-item"
+             hx-post="/taller/load-patient/{{ patient.test_id }}"
+             hx-target=".taller-workspace">
+          <div class="pending-patient-info">
+            <div class="pending-patient-name">{{ patient.name }}</div>
+            <div class="pending-patient-meta">
+              {{ patient.species }} • Tutor: {{ patient.owner_name }} • {{ patient.test_type }}
+            </div>
+          </div>
+      <div class="pending-patient-actions">
+        <button class="btn-delete-patient"
+          hx-delete="/taller/pending-patient/{{ patient.patient_id }}"
+          hx-confirm="¿Eliminar de la cola?"
+          hx-swap="outerHTML swap:300ms"
+          hx-indicator="#delete-indicator-{{ patient.patient_id }}"
+          hx-disabled-elt="this"
+          onclick="event.stopPropagation()">
+          🗑️
+        </button>
+        <span id="delete-indicator-{{ patient.patient_id }}" class="htmx-indicator">...</span>
+      </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="reception-status-msg">
+        {{ reception_status }}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- New Exam Manual Button (only when no pending patients) -->
+{% if not has_pending_patients %}
+<div class="new-exam-section">
+  <a href="/taller/new" class="btn-new-exam">
+    <span class="icon">+</span>
+    <span>Nuevo Examen Manual</span>
+  </a>
+</div>
+{% endif %}
+
+<!-- Two Column Workspace -->
+<div class="taller-workspace">
+  <!-- Left: Patient Form -->
+  <div class="workspace-left">
+    <div class="workspace-header">
+      📝 Datos del Paciente y Resultados
+    </div>
+    <div class="workspace-content">
+      <form class="patient-form" id="patient-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="patient_name">Nombre del Paciente</label>
+            <input type="text" id="patient_name" name="patient_name" placeholder="Ej: Firulais">
+          </div>
+          <div class="form-group">
+            <label for="species">Especie</label>
+            <select id="species" name="species">
+              <option value="">Seleccionar...</option>
+              <option value="Canino">Canino</option>
+              <option value="Felino">Felino</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="breed">Raza</label>
+            <input type="text" id="breed" name="breed" placeholder="Ej: Labrador">
+          </div>
+          <div class="form-group">
+            <label for="age">Edad</label>
+            <input type="text" id="age" name="age" placeholder="Ej: 3a o 18m">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="sex">Sexo</label>
+            <select id="sex" name="sex">
+              <option value="">Seleccionar...</option>
+              <option value="Macho">Macho</option>
+              <option value="Hembra">Hembra</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="owner">Tutor</label>
+            <input type="text" id="owner" name="owner" placeholder="Nombre del tutor">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="professional">Profesional</label>
+            <input type="text" id="professional" name="professional" placeholder="Veterinario/a">
+          </div>
+          <div class="form-group">
+            <label for="test_type">Tipo de Examen</label>
+          <select id="test_type" name="test_type"
+            hx-post="/taller/load-test-template"
+            hx-target="#lab-values-body"
+            hx-swap="innerHTML"
+            hx-indicator="#test-type-indicator"
+            hx-disabled-elt="this">
+            <option value="">Seleccionar...</option>
+            <option value="hemograma">Hemograma Completo</option>
+            <option value="quimica">Química Sanguínea</option>
+            <option value="urianalisis">Urianálisis</option>
+            <option value="copro">Coproparasitario</option>
+          </select>
+          <span id="test-type-indicator" class="htmx-indicator" style="margin-left: 0.5rem; font-size: 0.75rem; color: #6b7280;">Cargando...</span>
+          </div>
+        </div>
+
+        <!-- Lab Values Table -->
+        <div class="lab-values-section">
+          <table class="lab-values-table">
+            <thead>
+              <tr>
+                <th>Parámetro</th>
+                <th>Valor</th>
+                <th>Unidad</th>
+                <th>Referencia</th>
+              </tr>
+            </thead>
+            <tbody id="lab-values-body">
+              <!-- Populated by HTMX when selecting test type -->
+              <tr>
+                <td colspan="4" style="text-align: center; color: #9ca3af; padding: 2rem;">
+                  Selecciona un tipo de examen para ver los parámetros
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Right: PDF Preview -->
+  <div class="workspace-right">
+    <div class="workspace-header">
+      📄 Vista Previa del Informe
+    </div>
+    <div class="workspace-content">
+      <div class="pdf-preview-container" id="pdf-preview">
+        <div class="pdf-placeholder">
+          <div class="pdf-placeholder-icon">📋</div>
+          <p>El PDF se generará automáticamente</p>
+          <p style="font-size: 0.875rem; margin-top: 0.5rem;">
+            Completa los datos del paciente para ver la vista previa
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleReception() {
+  const content = document.getElementById('reception-content');
+  const icon = document.getElementById('reception-toggle-icon');
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    icon.textContent = '▼';
+  } else {
+    content.style.display = 'none';
+    icon.textContent = '▶';
+  }
+}
+</script>
+{% endblock %}

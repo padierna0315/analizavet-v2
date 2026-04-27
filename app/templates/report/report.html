@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte - {{ patient.name }}</title>
+    <!-- The "Shirt" is injected here by ReportService -->
+    <link rel="stylesheet" href="file://{{ theme_path }}">
+</head>
+<body>
+
+    <div class="header-container">
+        <div class="clinic-title">Laboratorio Veterinario Huellas Lab &#128062;</div>
+        <div class="clinic-subtitle">Cra.70 #34-13 Tel: 3147596552 - Itagüí</div>
+        <div class="header-divider"></div>
+    </div>
+
+    <div class="patient-grid">
+        <div class="patient-col-left">
+            <div class="info-row">Fecha: {{ test_result.received_at[:10] }}</div>
+            <div class="info-row">Paciente: {{ patient.name }}</div>
+            <div class="info-row">Tutor: {{ patient.owner_name }}</div>
+            <div class="info-row">Prueba: {{ test_result.test_type }}</div>
+        </div>
+        <div class="patient-col-right">
+            <div class="info-row">Especie: {{ patient.species | upper }}</div>
+            <div class="info-row">Sexo: {{ patient.sex | upper }}</div>
+            <div class="info-row">Edad: {{ patient.age_display or 'N/A' }}</div>
+            <div class="info-row">Origen: {{ test_result.source }}</div>
+        </div>
+    </div>
+
+    <div class="report-main-title">
+        {{ test_result.test_type | upper }}
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <!-- Dark blue section header spanning all columns -->
+                <td colspan="3" class="section-header">{{ test_result.test_type | upper }}</td>
+            </tr>
+            <tr>
+                <th>Examen</th>
+                <th class="col-center">RESULTADO</th>
+                <th class="col-right">REFERENCIA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lv in lab_values %}
+            <tr class="row-divider">
+                <td>{{ lv.parameter_name_es }}</td>
+
+                <td class="col-center">
+                    {% if lv.flag == 'ALTO' %}
+                        <span class="flag-alto">{{ lv.raw_value }} &uarr;</span>
+                    {% elif lv.flag == 'BAJO' %}
+                        <span class="flag-bajo">{{ lv.raw_value }} &darr;</span>
+                    {% else %}
+                        <span class="flag-normal">{{ lv.raw_value }}</span>
+                    {% endif %}
+                </td>
+
+                <td class="col-right">{{ lv.reference_range }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if lab_values %}
+    <table>
+        <thead>
+            <tr>
+                <!-- Dark blue section header spanning all columns -->
+                <td colspan="3" class="section-header">{{ test_result.test_type | upper }}</td>
+            </tr>
+            <tr>
+                <th>Examen</th>
+                <th class="col-center">RESULTADO</th>
+                <th class="col-right">REFERENCIA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lv in lab_values %}
+            <tr class="row-divider">
+                <td>{{ lv.parameter_name_es }}</td>
+
+                <td class="col-center">
+                    {% if lv.flag == 'ALTO' %}
+                        <span class="flag-alto">{{ lv.raw_value }} &uarr;</span>
+                    {% elif lv.flag == 'BAJO' %}
+                        <span class="flag-bajo">{{ lv.raw_value }} &darr;</span>
+                    {% else %}
+                        <span class="flag-normal">{{ lv.raw_value }}</span>
+                    {% endif %}
+                </td>
+
+                <td class="col-right">{{ lv.reference_range }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if interpretations %}
+    <div class="interpretations-section">
+        <div class="images-title">INTERPRETACIONES CLÍNICAS</div>
+        <ul style="font-size:0.8rem;padding-left:1.5rem;margin:0;">
+            {% for interp in interpretations %}
+            <li style="margin-bottom:0.5rem;">
+                <strong>{{ interp.parameter_name_es }}:</strong>
+                {{ interp.text_es }}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% set included_images = [] %}
+    {% for img in images %}
+        {% if img.is_included_in_report %}
+            {% set _ = included_images.append(img) %}
+        {% endif %}
+    {% endfor %}
+
+    {% if included_images %}
+    <div class="images-section">
+        <div class="images-title">ANEXOS (Gráficos e Histogramas)</div>
+        <div class="images-grid">
+            {% for img in included_images %}
+            <div class="image-card">
+                <img src="file://{{ img.absolute_path }}" alt="{{ img.parameter_name_es }}">
+                <div class="image-label">{{ img.parameter_name_es }} de {{ patient.name }} ({{ img.image_type }})</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+</body>
+</html>
