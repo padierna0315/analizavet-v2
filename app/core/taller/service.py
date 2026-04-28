@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from loguru import logger
 
@@ -74,32 +75,31 @@ class TallerService:
         test_result_id: int,
         session: AsyncSession,
     ) -> dict | None:
-        """Get TestResult with all LabValues, images, and patient info."""
-        # Get TestResult
+        """Get TestResult with all LabValues, images, and patient info.
+
+        Usa una sola consulta con eager loading (Tubería Maestra) para evitar
+        el problema N+1. La regla de "Estricto con el paciente" garantiza
+        que solo traemos resultados que tengan paciente asociado.
+        """
+        # Una sola consulta que trae TODO: TestResult + Patient + LabValues + Images
         result = await session.execute(
-            select(TestResult).where(TestResult.id == test_result_id)
+            select(TestResult)
+            .where(TestResult.id == test_result_id)
+            .join(Patient)  # Regla: estricto con el paciente
+            .options(
+                selectinload(TestResult.patient),
+                selectinload(TestResult.lab_values),
+                selectinload(TestResult.images),
+            )
         )
         tr = result.scalars().first()
         if not tr:
             return None
 
-        # Get Patient
-        patient_result = await session.execute(
-            select(Patient).where(Patient.id == tr.patient_id)
-        )
-        patient = patient_result.scalars().first()
-
-        # Get LabValues
-        lv_result = await session.execute(
-            select(LabValue).where(LabValue.test_result_id == test_result_id)
-        )
-        lab_values = lv_result.scalars().all()
-
-        # Get Images
-        img_result = await session.execute(
-            select(PatientImage).where(PatientImage.test_result_id == test_result_id)
-        )
-        images = img_result.scalars().all()
+        # Los datos ya vienen precargados gracias a selectinload
+        patient = tr.patient
+        lab_values = tr.lab_values
+        images = tr.images
 
         return {
             "test_result": {

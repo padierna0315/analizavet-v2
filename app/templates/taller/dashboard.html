@@ -232,56 +232,87 @@
   background: #fef2f2;
 }
 
-/* ── New Exam Button ────────────────────────────────────────────────────────── */
-.new-exam-section {
-  margin: 1rem 1.5rem;
-  padding: 1.5rem;
-  text-align: center;
-}
-
-.btn-new-exam {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem 2rem;
-  background: #10b981;
-  color: white;
-  border: none;
-  border-radius: 0.5rem;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: none;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.btn-new-exam:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-.btn-new-exam .icon {
-  font-size: 1.5rem;
-}
-
-/* ── Two Column Layout ──────────────────────────────────────────────────────── */
-.taller-workspace {
+/* ── Dashboard Grid Layout ─────────────────────────────────────────────────── */
+.dashboard-grid {
   display: grid;
+  grid-template-areas:
+    "encabezado encabezado"
+    "recepcion recepcion"
+    "editor visor";
   grid-template-columns: 60fr 40fr;
-  gap: 1rem;
-  margin: 0 1.5rem 1.5rem;
-  min-height: calc(100vh - 280px);
+  grid-template-rows: auto auto 1fr;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  min-height: calc(100vh - 60px);
 }
 
-.workspace-left,
-.workspace-right {
+.dashboard-header {
+  grid-area: encabezado;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--color-header-bg);
+  color: var(--color-header-text);
+  border-bottom: 1px solid #334155;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.status-bar {
+  grid-area: encabezado;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0 0 0;
+  width: 100%;
+  order: 3;
+  background: transparent;
+  border-bottom: none;
+}
+
+.reception-section {
+  grid-area: recepcion;
+  margin: 0;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Keep original gap only for reception */
+.reception-section + * {
+  margin-top: 1rem;
+}
+
+.taller-workspace {
+  display: contents;
+}
+
+.workspace-left {
+  grid-area: editor;
   background: white;
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
+
+.workspace-right {
+  grid-area: visor;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+
 
 .workspace-header {
   padding: 0.75rem 1rem;
@@ -427,40 +458,40 @@
 {% endblock %}
 
 {% block content %}
-<!-- Dashboard Header -->
-<div class="dashboard-header">
-  <div class="header-left">
-    <span class="header-logo">🐾 Huellas Lab</span>
-    <span class="header-subtitle">— Analizavet</span>
-  </div>
-  <div class="header-actions">
-    <button class="btn-header btn-generate-pdf" onclick="alert('Generar PDF - en desarrollo')">
-      📄 Generar PDF
-    </button>
-    <button class="btn-header btn-upload-lis" onclick="alert('Subir LIS - en desarrollo')">
-      ⬆️ Subir LIS
-    </button>
-  </div>
-</div>
-
-<!-- Status Bar with Adapters -->
-<div class="status-bar"
-     id="adapters-status"
-     hx-get="/api/adapters/status"
-     hx-trigger="load, every 5s"
-     hx-swap="innerHTML">
-  {% for adapter in adapters %}
-  <div class="adapter-card">
-    <span class="adapter-icon">🩸</span>
-    <span class="adapter-name">{{ adapter.name }}</span>
-    <span class="adapter-status {{ 'active' if adapter.is_running else 'inactive' }}"
+<div class="dashboard-grid">
+  <!-- Header + Status Bar combined -->
+  <div class="dashboard-header">
+    <div class="header-left">
+      <span class="header-logo">🐾 Huellas Lab</span>
+      <span class="header-subtitle">— Analizavet</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn-header btn-generate-pdf" type="button">
+        📄 Generar PDF
+      </button>
+      <button class="btn-header btn-upload-lis" type="button">
+        ⬆️ Subir LIS
+      </button>
+    </div>
+    <!-- Status Bar within header area -->
+    <div class="status-bar"
+      id="adapters-status"
+      hx-get="/api/adapters/status"
+      hx-trigger="load, every 5s"
+      hx-swap="innerHTML">
+      {% for adapter in adapters %}
+      <div class="adapter-card">
+        <span class="adapter-icon">🩸</span>
+        <span class="adapter-name">{{ adapter.name }}</span>
+        <span class="adapter-status {{ 'active' if adapter.is_running else 'inactive' }}"
           title="{{ 'Conectado' if adapter.is_running else 'Desconectado' }}"></span>
+      </div>
+      {% endfor %}
+    </div>
   </div>
-  {% endfor %}
-</div>
 
-<!-- Reception Section -->
-<div class="reception-section">
+  <!-- Reception Section -->
+  <div class="reception-section">
   <div class="reception-header" onclick="toggleReception()">
     <div class="reception-title">
       <span>📥</span>
@@ -510,113 +541,26 @@
   </div>
 </div>
 
-<!-- New Exam Manual Button (only when no pending patients) -->
-{% if not has_pending_patients %}
-<div class="new-exam-section">
-  <a href="/taller/new" class="btn-new-exam">
-    <span class="icon">+</span>
-    <span>Nuevo Examen Manual</span>
-  </a>
-</div>
-{% endif %}
-
-<!-- Two Column Workspace -->
+<!-- Workspace: Editor + Viewer -->
 <div class="taller-workspace">
-  <!-- Left: Patient Form -->
-  <div class="workspace-left">
+  <!-- Editor: Patient Form -->
+  <div class="workspace-left workspace-editor">
     <div class="workspace-header">
       📝 Datos del Paciente y Resultados
     </div>
-    <div class="workspace-content">
-      <form class="patient-form" id="patient-form">
-        <div class="form-row">
-          <div class="form-group">
-            <label for="patient_name">Nombre del Paciente</label>
-            <input type="text" id="patient_name" name="patient_name" placeholder="Ej: Firulais">
-          </div>
-          <div class="form-group">
-            <label for="species">Especie</label>
-            <select id="species" name="species">
-              <option value="">Seleccionar...</option>
-              <option value="Canino">Canino</option>
-              <option value="Felino">Felino</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="breed">Raza</label>
-            <input type="text" id="breed" name="breed" placeholder="Ej: Labrador">
-          </div>
-          <div class="form-group">
-            <label for="age">Edad</label>
-            <input type="text" id="age" name="age" placeholder="Ej: 3a o 18m">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="sex">Sexo</label>
-            <select id="sex" name="sex">
-              <option value="">Seleccionar...</option>
-              <option value="Macho">Macho</option>
-              <option value="Hembra">Hembra</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="owner">Tutor</label>
-            <input type="text" id="owner" name="owner" placeholder="Nombre del tutor">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="professional">Profesional</label>
-            <input type="text" id="professional" name="professional" placeholder="Veterinario/a">
-          </div>
-          <div class="form-group">
-            <label for="test_type">Tipo de Examen</label>
-          <select id="test_type" name="test_type"
-            hx-post="/taller/load-test-template"
-            hx-target="#lab-values-body"
-            hx-swap="innerHTML"
-            hx-indicator="#test-type-indicator"
-            hx-disabled-elt="this">
-            <option value="">Seleccionar...</option>
-            <option value="hemograma">Hemograma Completo</option>
-            <option value="quimica">Química Sanguínea</option>
-            <option value="urianalisis">Urianálisis</option>
-            <option value="copro">Coproparasitario</option>
-          </select>
-          <span id="test-type-indicator" class="htmx-indicator" style="margin-left: 0.5rem; font-size: 0.75rem; color: #6b7280;">Cargando...</span>
-          </div>
-        </div>
-
-        <!-- Lab Values Table -->
-        <div class="lab-values-section">
-          <table class="lab-values-table">
-            <thead>
-              <tr>
-                <th>Parámetro</th>
-                <th>Valor</th>
-                <th>Unidad</th>
-                <th>Referencia</th>
-              </tr>
-            </thead>
-            <tbody id="lab-values-body">
-              <!-- Populated by HTMX when selecting test type -->
-              <tr>
-                <td colspan="4" style="text-align: center; color: #9ca3af; padding: 2rem;">
-                  Selecciona un tipo de examen para ver los parámetros
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </form>
+    <div class="workspace-content" id="workspace-editor-content">
+      <div class="pdf-placeholder">
+        <div class="pdf-placeholder-icon">📝</div>
+        <p>Selecciona un paciente de la recepción</p>
+        <p style="font-size: 0.875rem; margin-top: 0.5rem;">
+          Los datos y parámetros se cargarán automáticamente
+        </p>
+      </div>
     </div>
   </div>
 
-  <!-- Right: PDF Preview -->
-  <div class="workspace-right">
+  <!-- Viewer: PDF Preview -->
+  <div class="workspace-right workspace-viewer">
     <div class="workspace-header">
       📄 Vista Previa del Informe
     </div>
@@ -632,6 +576,7 @@
       </div>
     </div>
   </div>
+</div>
 </div>
 
 <script>

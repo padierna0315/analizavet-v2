@@ -88,11 +88,11 @@ async def taller_dashboard(
         reception_status = "Sistema de cola no disponible"
 
     # Use Jinja2 to render the template
-    _taller_env = jinja2.Environment(
+    taller_env = jinja2.Environment(
         loader=jinja2.FileSystemLoader("app/templates"),
         autoescape=jinja2.select_autoescape(),
     )
-    template = _taller_env.get_template("taller/dashboard.html")
+    template = taller_env.get_template("taller/dashboard.html")
     html = template.render(
         request=request,
         adapters=adapters,
@@ -652,7 +652,7 @@ async def load_patient_workspace(
 
     html_content = f"""
 <!-- Left: Patient Form -->
-<div class="workspace-left">
+<div class="workspace-left workspace-editor">
   <div class="workspace-header">
     📝 Datos del Paciente y Resultados
   </div>
@@ -713,7 +713,7 @@ async def load_patient_workspace(
 </div>
 
 <!-- Right: PDF Preview -->
-<div class="workspace-right">
+<div class="workspace-right workspace-viewer">
   <div class="workspace-header">
     📄 Vista Previa del Informe
   </div>
@@ -755,7 +755,7 @@ async def taller_page(
     if not data:
         raise HTTPException(status_code=404, detail=f"Resultado {result_id} no encontrado")
 
-    template = _taller_env.get_template("taller.html")
+    template = taller_env.get_template("taller.html")
     html = template.render(
         request=request,
         patient=data["patient"],
