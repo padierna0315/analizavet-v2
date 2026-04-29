@@ -15,6 +15,7 @@ from app.schemas.taller import EnrichRequest, ImageUploadRequest
 from app.satellites.ozelle.hl7_parser import parse_hl7_message, HL7ParsingError, HeartbeatMessageException, ParsedOzelleMessage
 from app.core.reception.service import ReceptionService
 from app.core.taller.service import TallerService
+from app.satellites.ozelle.batch_splitter import BatchSplitter
 
 
 # ── Module-level service instances (shared across actor invocations) ────────────
@@ -143,3 +144,43 @@ async def _async_process_pipeline(parsed_msg: ParsedOzelleMessage, source: str):
             logger.error(f"Error crítico en pipeline asíncrono: {e}")
             # Re-raise so the Dramatiq actor knows it failed and can retry
             raise
+
+
+# ── Batch Processing Actor ─────────────────────────────────────────────────────
+
+
+@dramatiq.actor(max_retries=3, time_limit=120000)
+def process_uploaded_batch(file_content: str):
+    """
+    Dramatiq actor to process an uploaded HL7 batch file.
+    This actor handles the complete batch processing pipeline:
+    1. Split the batch file into individual messages
+    2. Filter out heartbeat messages
+    3. Process each valid message through the existing pipeline
+    """
+    logger.info("Procesando archivo HL7 batch en background")
+    try:
+        # Convert string back to bytes for processing
+        file_bytes = file_content.encode('utf-8')
+        # Split the batch file into individual messages
+        valid_messages = BatchSplitter.process_batch(file_bytes)
+        logger.info(f"Archivo dividido en {len(valid_messages)} mensajes válidos")
+        
+        # Process each message
+        for i, message in enumerate(valid_messages):
+            try:
+                # Decode message to string for processing
+                message_str = message.decode('utf-8', errors='ignore')
+                logger.info(f"Procesando mensaje {i+1} de {len(valid_messages)}")
+                
+                # Process the message using the existing actor
+                process_hl7_message.send(message_str, "OZELLE")
+            except Exception as e:
+                logger.error(f"Error procesando mensaje {i+1}: {e}")
+                # Continue with the next message even if one fails
+                continue
+                
+        logger.info("Procesamiento de archivo HL7 batch completado")
+    except Exception as e:
+        logger.error(f"Error fatal procesando archivo HL7 batch: {e}")
+        raise  # Raise to trigger Dramatiq retry

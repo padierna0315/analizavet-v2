@@ -1,11 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
+from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 from app.database import get_session
 from app.schemas.reception import RawPatientInput, BaulResult, NormalizedPatient
 from app.models.patient import Patient
+from app.models.test_result import TestResult
 from app.core.reception.service import ReceptionService
 from loguru import logger
+import uuid
+
+# Import Dramatiq actor for batch processing
+from app.tasks.hl7_processor import process_uploaded_batch
+
+# Initialize templates
+templates = Jinja2Templates(directory="app/templates")
 
 router = APIRouter(prefix="/reception", tags=["Recepción"])
 _service = ReceptionService()
@@ -82,34 +92,84 @@ async def list_patients(
     }
 
 
-@router.get("/patients/{patient_id}", response_model=dict)
-async def get_patient(
-    patient_id: int,
+@router.post("/upload")
+async def upload_hl1_batch(
+    file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get full detail of a single patient by ID."""
-    result = await session.execute(
-        select(Patient).where(Patient.id == patient_id)
-    )
-    patient = result.scalars().first()
+    """Handle HL7 batch file upload and process it."""
+    try:
+        # Read the file content
+        content = await file.read()
+        
+        # Convert bytes to string for JSON serialization (Dramatiq)
+        content_str = content.decode('utf-8')
+        
+        # Send the file content to the Dramatiq actor for processing
+        process_uploaded_batch.send(content_str)
+        
+        logger.info(f"Received HL7 batch file: {file.filename}")
+        return RedirectResponse(url="/recepcion", status_code=303)
+    except Exception as e:
+        logger.error(f"Error processing HL7 batch file: {e}")
+        raise HTTPException(status_code=500, detail="Error processing HL7 file")
+
+
+@router.post("/reception/procesar/{test_result_id}")
+async def process_test_result(
+    test_result_id: int,
+    session: AsyncSession = Depends(get_session),
+    request: Request = None,
+):
+    """Process a test result and move it to the taller."""
+    # Get the test result by ID
+    statement = select(TestResult).where(TestResult.id == test_result_id)
+    result = await session.execute(statement)
+    test_result = result.scalar_one_or_none()
     
-    if not patient:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Paciente con ID {patient_id} no encontrado"
-        )
+    if not test_result:
+        raise HTTPException(status_code=404, detail="Test result not found")
     
-    return {
-        "id": patient.id,
-        "name": patient.name,
-        "species": patient.species,
-        "sex": patient.sex,
-        "has_age": patient.has_age,
-        "age_value": patient.age_value,
-        "age_unit": patient.age_unit,
-        "age_display": patient.age_display,
-        "owner_name": patient.owner_name,
-        "source": patient.source,
-        "created_at": patient.created_at.isoformat(),
-        "updated_at": patient.updated_at.isoformat(),
-    }
+    # Update the status to "pendiente"
+    test_result.status = "pendiente"
+    session.add(test_result)
+    await session.commit()
+    
+    # Return HTML for HTMX to update the row
+    if request:
+        return templates.TemplateResponse("recepcion/patient_processed.html", {
+            "request": request,
+            "test_result": test_result
+        })
+    else:
+        return {"status": "success", "message": "Test result moved to taller"}
+
+
+@router.get("/recepcion")
+async def get_recepcion(request: Request, session: AsyncSession = Depends(get_session)):
+    """Display the queue of patients with status="recibido"."""
+    # Query for test results with status="recibido" and join with patient data
+    query = select(TestResult, Patient).join(Patient).where(TestResult.status == "recibido")
+    result = await session.execute(query)
+    results = result.all()
+    
+    # Group test results by patient for display
+    patients_data = {}
+    for test_result, patient in results:
+        if patient.id not in patients_data:
+            patients_data[patient.id] = {
+                "patient": patient,
+                "test_results": []
+            }
+        patients_data[patient.id]["test_results"].append(test_result)
+    
+    # Convert to list for template rendering
+    patients_list = list(patients_data.values())
+    
+    return templates.TemplateResponse("recepcion/index.html", {
+        "request": request,
+        "patients": patients_list
+    })
+
+
+
