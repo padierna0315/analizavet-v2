@@ -538,13 +538,10 @@ async def get_pending_patients_fragment(
     session: AsyncSession = Depends(get_session),
 ):
     """HTMX endpoint: return pending patients list HTML for dashboard."""
-    from datetime import timedelta
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
 
     result = await session.execute(
         select(TestResult)
-        .where(TestResult.received_at >= cutoff)
+        .where(TestResult.status != "listo")
         .order_by(TestResult.received_at.desc())
         .limit(10)
     )
@@ -755,6 +752,10 @@ async def taller_page(
     if not data:
         raise HTTPException(status_code=404, detail=f"Resultado {result_id} no encontrado")
 
+    taller_env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader("app/templates"),
+        autoescape=jinja2.select_autoescape(),
+    )
     template = taller_env.get_template("taller.html")
     html = template.render(
         request=request,

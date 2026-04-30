@@ -8,9 +8,9 @@ from app.schemas.reception import RawPatientInput, BaulResult, NormalizedPatient
 from app.models.patient import Patient
 from app.models.test_result import TestResult
 from app.core.reception.service import ReceptionService
-from loguru import logger
 import uuid
 
+import logfire
 # Import Dramatiq actor for batch processing
 from app.tasks.hl7_processor import process_uploaded_batch
 
@@ -116,12 +116,12 @@ async def upload_hl1_batch(
         # Send the file content to the Dramatiq actor for processing
         process_uploaded_batch.send(content_str)
         
-        logger.info(f"Received HL7 batch file: {file.filename}")
+        logfire.info(f"Received HL7 batch file: {file.filename}")
         return RedirectResponse(url="/taller/", status_code=303)
     except HTTPException:
         raise  # re-raise HTTPException as is
     except Exception as e:
-        logger.error(f"Error processing HL7 batch file: {e}")
+        logfire.error(f"Error processing HL7 batch file: {e}")
         raise HTTPException(status_code=500, detail="Error processing HL7 file")
 
 

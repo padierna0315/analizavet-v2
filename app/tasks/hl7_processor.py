@@ -6,7 +6,7 @@ Decouple la recepción TCP del procesamiento pesado del Core.
 """
 
 import dramatiq
-from loguru import logger
+import logfire
 import anyio
 
 from app.database import AsyncSessionLocal
@@ -38,10 +38,13 @@ def process_hl7_message(raw_hl7: str, source: str):
     Dramatiq actor to process an incoming HL7 message.
     Retries up to 3 times on failure with exponential backoff.
     """
-    logger.info(f"Procesando mensaje HL7 en background (fuente: {source})")
+    logfire.info(f"Procesando mensaje HL7 en background (fuente: {source})")
     try:
-        parsed = parse_hl7_message(raw_hl7)
-        logger.info(
+        logfire.info(f"Processing HL7 message from source: {source}")
+        logfire.debug(f"Raw message length: {len(raw_hl7)} characters")
+        
+        parsed = parse_hl7_message(raw_hl7, source)
+        logfire.info(
             f"Mensaje parseado correctamente: {parsed.test_type_name} "
             f"para '{parsed.raw_patient_string}'"
         )
@@ -51,10 +54,12 @@ def process_hl7_message(raw_hl7: str, source: str):
 
     except (HL7ParsingError, HeartbeatMessageException) as e:
         # Fatal errors: malformed message or heartbeat. Neither should retry.
-        logger.error(f"Error fatal procesando HL7. Se descarta. {e}")
+        logfire.error(f"Error fatal procesando HL7. Se descarta. {e}")
+        logfire.debug(f"Failed message content (first 500 chars): {raw_hl7[:500]}")
         # Not raising so it doesn't trigger Dramatiq retry
     except Exception as e:
-        logger.error(f"Error procesando mensaje. Se reintentará. Error: {e}")
+        logfire.error(f"Error procesando mensaje. Se reintentará. Error: {e}")
+        logfire.debug(f"Failed message content (first 500 chars): {raw_hl7[:500]}")
         raise  # Raise to trigger Dramatiq retry
 
 
@@ -69,10 +74,10 @@ async def _async_process_pipeline(parsed_msg: ParsedOzelleMessage, source: str):
     2. Send lab values to Taller (Enrichment: create TestResult + flag values)
     3. Send images to Taller (Image Storage)
     """
-    logger.info(f"Iniciando pipeline para paciente: '{parsed_msg.raw_patient_string}'")
+
+    logfire.info(f"Iniciando pipeline para paciente: '{parsed_msg.raw_patient_string}'")
 
     source_enum = PatientSource(source)
-
     # 1. Prepare Reception Input
     reception_input = RawPatientInput(
         raw_string=parsed_msg.raw_patient_string,
@@ -83,18 +88,18 @@ async def _async_process_pipeline(parsed_msg: ParsedOzelleMessage, source: str):
     async with AsyncSessionLocal() as session:
         try:
             # ── RECEPTION PHASE ──────────────────────────────────────────────
-            logger.debug("Llamando a ReceptionService...")
+            logfire.debug("Llamando a ReceptionService...")
             baul_result = await _reception_service().receive(reception_input, session)
             patient_id = baul_result.patient_id
             normalized_patient = baul_result.patient
 
-            logger.info(
+            logfire.info(
                 f"Recepción completada. Paciente ID: {patient_id} "
                 f"(Nuevo: {baul_result.created})"
             )
 
             # ── TALLER PHASE — Enrichment ────────────────────────────────────
-            logger.debug("Llamando a TallerService (Enrichment)...")
+            logfire.debug("Llamando a TallerService (Enrichment)...")
 
             # Create TestResult
             tr = await _taller_service().create_test_result(
@@ -114,14 +119,14 @@ async def _async_process_pipeline(parsed_msg: ParsedOzelleMessage, source: str):
                 session=session,
             )
 
-            logger.info(
+            logfire.info(
                 f"Taller Enrichment completado. TestResult ID: {tr.id}. "
                 f"Resumen: {flag_result.summary}"
             )
 
             # ── TALLER PHASE — Images ─────────────────────────────────────────
             if parsed_msg.images:
-                logger.debug(f"Procesando {len(parsed_msg.images)} imágenes...")
+                logfire.debug(f"Procesando {len(parsed_msg.images)} imágenes...")
                 image_req = ImageUploadRequest(
                     test_result_id=tr.id,
                     patient_name=normalized_patient.name,
@@ -131,17 +136,17 @@ async def _async_process_pipeline(parsed_msg: ParsedOzelleMessage, source: str):
                 )
 
                 img_result = await _taller_service().save_images(image_req, session)
-                logger.info(
+                logfire.info(
                     f"Imágenes guardadas: {img_result.total_saved} "
                     f"(Fallaron: {img_result.total_failed})"
                 )
             else:
-                logger.info("El mensaje no contiene imágenes.")
+                logfire.info("El mensaje no contiene imágenes.")
 
-            logger.info("Pipeline completado exitosamente.")
+            logfire.info("Pipeline completado exitosamente.")
 
         except Exception as e:
-            logger.error(f"Error crítico en pipeline asíncrono: {e}")
+            logfire.error(f"Error crítico en pipeline asíncrono: {e}")
             # Re-raise so the Dramatiq actor knows it failed and can retry
             raise
 
@@ -158,29 +163,35 @@ def process_uploaded_batch(file_content: str):
     2. Filter out heartbeat messages
     3. Process each valid message through the existing pipeline
     """
-    logger.info("Procesando archivo HL7 batch en background")
+    logfire.info("Procesando archivo HL7 batch en background")
     try:
         # Convert string back to bytes for processing
         file_bytes = file_content.encode('utf-8')
+        logfire.info(f"Batch file size: {len(file_bytes)} bytes")
+        
         # Split the batch file into individual messages
         valid_messages = BatchSplitter.process_batch(file_bytes)
-        logger.info(f"Archivo dividido en {len(valid_messages)} mensajes válidos")
+        logfire.info(f"Archivo dividido en {len(valid_messages)} mensajes válidos")
+        
+        if len(valid_messages) == 0:
+            logfire.warning("No se encontraron mensajes válidos en el archivo batch")
+            return
         
         # Process each message
         for i, message in enumerate(valid_messages):
             try:
                 # Decode message to string for processing
                 message_str = message.decode('utf-8', errors='ignore')
-                logger.info(f"Procesando mensaje {i+1} de {len(valid_messages)}")
+                logfire.info(f"Procesando mensaje {i+1}/{len(valid_messages)}: {len(message_str)} chars")
                 
                 # Process the message using the existing actor
-                process_hl7_message.send(message_str, "OZELLE")
+                process_hl7_message.send(message_str, PatientSource.LIS_FILE.value)
             except Exception as e:
-                logger.error(f"Error procesando mensaje {i+1}: {e}")
+                logfire.error(f"Error procesando mensaje {i+1}: {e}")
                 # Continue with the next message even if one fails
                 continue
                 
-        logger.info("Procesamiento de archivo HL7 batch completado")
+        logfire.info("Procesamiento de archivo HL7 batch completado")
     except Exception as e:
-        logger.error(f"Error fatal procesando archivo HL7 batch: {e}")
+        logfire.error(f"Error fatal procesando archivo HL7 batch: {e}")
         raise  # Raise to trigger Dramatiq retry

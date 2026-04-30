@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
-from loguru import logger
+import logfire
 
 from app.models.test_result import TestResult
 from app.models.lab_value import LabValue
@@ -45,7 +45,7 @@ class TallerService:
         session.add(tr)
         await session.commit()
         await session.refresh(tr)
-        logger.info(f"TestResult creado: id={tr.id} patient={patient_id} tipo={test_type}")
+        logfire.info(f"TestResult creado: id={tr.id} patient={patient_id} tipo={test_type}")
         return tr
 
     async def flag_and_store(

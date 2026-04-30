@@ -1,5 +1,5 @@
 import asyncio
-from loguru import logger
+import logfire
 from app.satellites.base import SourceAdapter
 from app.schemas.reception import PatientSource
 
@@ -20,28 +20,28 @@ class FujifilmAdapter(SourceAdapter):
         self._server = await asyncio.start_server(
             self.handle_client, self.host, self.port
         )
-        logger.info(f"Fujifilm Stub Server escuchando en {self.host}:{self.port}")
+        logfire.info(f"Fujifilm Stub Server escuchando en {self.host}:{self.port}")
 
     async def stop(self) -> None:
         if self._server:
             self._server.close()
             await self._server.wait_closed()
-            logger.info("Fujifilm Stub Server detenido")
+            logfire.info("Fujifilm Stub Server detenido")
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
-        logger.info(f"Nueva conexión Fujifilm desde {addr}")
+        logfire.info(f"Nueva conexión Fujifilm desde {addr}")
 
         try:
             data = await reader.read(4096)
             message = data.decode("utf-8", errors="replace")
-            logger.info(f"Fujifilm stub recibió: {message}")
+            logfire.info(f"Fujifilm stub recibió: {message}")
 
             # TODO: Implement Fujifilm HL7 parsing and Dramatiq enqueueing
-            logger.warning("Fujifilm adapter es un STUB. Mensaje ignorado.")
+            logfire.warning("Fujifilm adapter es un STUB. Mensaje ignorado.")
 
         except Exception as e:
-            logger.error(f"Error en conexión Fujifilm con {addr}: {e}")
+            logfire.error(f"Error en conexión Fujifilm con {addr}: {e}")
         finally:
             writer.close()
             try:

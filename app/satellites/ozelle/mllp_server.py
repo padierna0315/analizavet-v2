@@ -8,7 +8,7 @@ and sends MLLP-framed HL7 ACKs back.
 
 import asyncio
 from datetime import datetime
-from loguru import logger
+import logfire
 
 from app.satellites.ozelle.hl7_parser import parse_hl7_message, HL7ParsingError, HeartbeatMessageException
 from app.schemas.reception import PatientSource
@@ -37,14 +37,14 @@ class OzelleMLLPServer:
         self._server = await asyncio.start_server(
             self.handle_client, self.host, self.port
         )
-        logger.info(f"Ozelle MLLP Server escuchando en {self.host}:{self.port}")
+        logfire.info(f"Ozelle MLLP Server escuchando en {self.host}:{self.port}")
 
     async def stop(self):
         """Stop the TCP server."""
         if self._server:
             self._server.close()
             await self._server.wait_closed()
-            logger.info("Ozelle MLLP Server detenido")
+            logfire.info("Ozelle MLLP Server detenido")
 
     def is_running(self) -> bool:
         """Return True if the server is currently running."""
@@ -53,7 +53,7 @@ class OzelleMLLPServer:
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle an incoming TCP connection."""
         addr = writer.get_extra_info("peername")
-        logger.debug(f"Nueva conexión Ozelle desde {addr}")
+        logfire.debug(f"Nueva conexión Ozelle desde {addr}")
 
         buffer = bytearray()
         try:
@@ -80,7 +80,7 @@ class OzelleMLLPServer:
                             hl7_str = hl7_bytes.decode("utf-8", errors="replace")
                             await self._process_message(hl7_str, writer)
                         except Exception as e:
-                            logger.error(f"Error procesando mensaje: {e}")
+                            logfire.error(f"Error procesando mensaje: {e}")
                             # Try to send AE (Application Error) with whatever we have
                             await self._send_ack(writer, hl7_str, ack_code="AE", error_msg=str(e))
                     else:
@@ -89,9 +89,9 @@ class OzelleMLLPServer:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"Error en conexión MLLP con {addr}: {e}")
+            logfire.error(f"Error en conexión MLLP con {addr}: {e}")
         finally:
-            logger.debug(f"Cerrando conexión con {addr}")
+            logfire.debug(f"Cerrando conexión con {addr}")
             writer.close()
             try:
                 await writer.wait_closed()
@@ -111,17 +111,17 @@ class OzelleMLLPServer:
             from app.tasks.hl7_processor import process_hl7_message
             process_hl7_message.send(hl7_str, PatientSource.LIS_OZELLE.value)
 
-            logger.info("Mensaje HL7 encolado en Dramatiq exitosamente.")
+            logfire.info("Mensaje HL7 encolado en Dramatiq exitosamente.")
 
             # Send ACK
             await self._send_ack(writer, hl7_str, ack_code="AA")
 
         except HeartbeatMessageException:
-            logger.debug("Heartbeat de Ozelle recibido y respondido")
+            logfire.debug("Heartbeat de Ozelle recibido y respondido")
             await self._send_ack(writer, hl7_str, ack_code="AA")
 
         except HL7ParsingError as e:
-            logger.error(f"Error de parseo HL7: {e}")
+            logfire.error(f"Error de parseo HL7: {e}")
             await self._send_ack(writer, hl7_str, ack_code="AE", error_msg=str(e))
 
     async def _send_ack(

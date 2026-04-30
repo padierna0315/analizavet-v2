@@ -3,7 +3,7 @@ import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
-from loguru import logger
+import logfire
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -40,8 +40,20 @@ IMAGE_PARAMETER_TRANSLATION = {
     "ETG": "Celulas_Diana",
     "APLT": "Plaquetas_Agregadas",
     "P-LCC": "Plaquetas_Grandes",
+    "P-LCR": "Plaquetas_Critica",
+    "HDW-CV": "Ancho_Distribucion_Plaquetas",
+    "HDW-SD": "Desviacion_Ancho_Plaquetas",
     # Distribuciones combinadas (confirmadas en log real)
     "RBC_PLT": "Distribucion_RBC_PLT",
+    # Hematología — Códigos adicionales del log (confirmados en log real)
+    "NEU": "Neutrofilos",
+    "HGB": "Hemoglobina",
+    "HCT": "Hematocrito",
+    "MCV": "Volumen_Corpuscular_Medio",
+    "MCH": "Corpuscular_Medio",
+    "MCHC": "Corpuscular_Medio_Cromica",
+    "RDW-CV": "Ancho_Distribucion_Corpuscular",
+    "RDW-SD": "Desviacion_Distribucion_Corpuscular",
     "FECES": "Heces",
     # Heces — Coproscópico (confirmados en log real — paciente Rafael)
     "BACI": "Bacterias",
@@ -101,7 +113,7 @@ def _translate_base_code(base_code: str) -> str:
     """
     if base_code in IMAGE_PARAMETER_TRANSLATION:
         return IMAGE_PARAMETER_TRANSLATION[base_code]
-    logger.warning(
+    logfire.warning(
         f"Código de imagen desconocido: '{base_code}'. "
         f"Agregar a IMAGE_PARAMETER_TRANSLATION en images.py."
     )
@@ -201,7 +213,7 @@ class ImageHandlingService:
         for image_item in request.images:
             # Detect duplicate obs_identifier in same batch
             if image_item.obs_identifier in seen_identifiers:
-                logger.warning(
+                logfire.warning(
                     f"obs_identifier duplicado en el batch: '{image_item.obs_identifier}'. "
                     f"Se omite para evitar sobrescritura silenciosa."
                 )
@@ -222,7 +234,7 @@ class ImageHandlingService:
 
                 # Detect if file already exists (cross-batch overwrite protection)
                 if file_path.exists():
-                    logger.warning(
+                    logfire.warning(
                         f"Archivo ya existe: {file_path}. "
                         f"Se sobrescribe — verificar si es intencional."
                     )
@@ -245,10 +257,10 @@ class ImageHandlingService:
                     "parameter_name_es": name_es,
                     "file_path": str(file_path),
                 })
-                logger.debug(f"Imagen guardada: {file_path}")
+                logfire.debug(f"Imagen guardada: {file_path}")
 
             except Exception as e:
-                logger.error(
+                logfire.error(
                     f"Error guardando imagen para "
                     f"{image_item.obs_identifier}: {e}"
                 )
@@ -270,7 +282,7 @@ class ImageHandlingService:
                 session.add(img)
             await session.commit()
 
-        logger.info(
+        logfire.info(
             f"Imágenes TestResult {request.test_result_id}: "
             f"{len(saved)} guardadas, {len(failed)} fallidas"
         )

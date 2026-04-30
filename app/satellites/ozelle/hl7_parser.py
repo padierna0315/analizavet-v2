@@ -8,7 +8,7 @@ Pure logic — no database, no FastAPI.
 from datetime import datetime, timezone
 from pydantic import BaseModel
 import re
-from loguru import logger
+import logfire
 
 from app.schemas.taller import RawLabValueInput, ImageUploadItem
 from app.core.taller.images import _translate_base_code, _parse_obs_identifier
@@ -93,6 +93,9 @@ def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzel
     lab_values: list[RawLabValueInput] = []
     images: list[ImageUploadItem] = []
 
+    pid_count = 0
+    msh_count = 0
+
     for line in lines:
         if not line.strip():
             continue
@@ -102,6 +105,7 @@ def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzel
 
         # ── MSH: Message Header ──────────────────────────────────────────────
         if segment_type == "MSH":
+            msh_count += 1
             if len(parts) > 8:
                 segment_8 = parts[8]
                 # Check for heartbeat: ZHB^H00 or HEARTBEAT
@@ -120,10 +124,11 @@ def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzel
                             tzinfo=timezone.utc
                         )
                     except ValueError:
-                        logger.warning(f"No se pudo parsear fecha MSH: {date_str}")
+                        logfire.warning(f"No se pudo parsear fecha MSH: {date_str}")
 
         # ── PID: Patient Identification ────────────────────────────────────
         elif segment_type == "PID":
+            pid_count += 1
             # Patient string is in PID[9] (index 9)
             if len(parts) > 9:
                 raw_patient_string = parts[9].strip()
@@ -202,6 +207,17 @@ def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzel
     if not raw_patient_string:
         raise HL7ParsingError(
             "No se encontró segmento PID con datos del paciente"
+        )
+    
+    if pid_count > 1:
+        raise HL7ParsingError(
+            f"Mensaje HL7 contiene múltiples segmentos PID ({pid_count}). "
+            "Cada mensaje debe contener exactamente un paciente."
+        )
+    
+    if msh_count != 1:
+        raise HL7ParsingError(
+            f"Mensaje HL7 contiene {msh_count} segmentos MSH (debe ser 1)."
         )
 
     return ParsedOzelleMessage(

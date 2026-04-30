@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
-from loguru import logger
+import logfire
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.taller.service import TallerService
@@ -53,5 +53,5 @@ class ReportService:
             pdf_bytes = HTML(string=rendered_html).write_pdf()
             return pdf_bytes
         except Exception as e:
-            logger.error(f"Error generando PDF: {e}")
+            logfire.error(f"Error generando PDF: {e}")
             raise RuntimeError(f"No se pudo generar el PDF: {e}")

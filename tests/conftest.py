@@ -32,6 +32,13 @@ def stub_broker():
     yield _test_stub_broker
 
 
+@pytest.fixture(autouse=True)
+def clear_stub_broker_queues():
+    """Clear stub broker queues between tests."""
+    yield
+    _test_stub_broker.queues.clear()
+
+
 # ── Shared in-memory engine (session scope) ────────────────────────────────────
 
 _engine = None
@@ -70,8 +77,13 @@ async def _override_get_session():
 
 
 @pytest.fixture
-async def client():
+def client():
     app.dependency_overrides[get_session] = _override_get_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        yield c
+    # follow_redirects=True to automatically follow 3xx redirects
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True)
+
+
+@pytest.fixture(autouse=True)
+def cleanup_client():
+    yield
     app.dependency_overrides.clear()

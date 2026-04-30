@@ -1,3 +1,4 @@
+import logfire
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -14,7 +15,14 @@ from app.config import settings
 from app.satellites.ozelle import OzelleAdapter
 from app.satellites.fujifilm import FujifilmAdapter
 from app.database import create_db_and_tables
-from loguru import logger
+
+
+# Logfire configuration - local mode only (no internet)
+logfire.configure(
+    send_to_logfire=False,  # Modo local — sin conexión a internet
+    service_name="analizavet-v2",
+)
+logfire.instrument_pydantic()  # Captura validaciones de Pydantic
 
 # Global list of active adapters
 _adapters = []
@@ -25,10 +33,10 @@ _adapters = []
 async def lifespan(app: FastAPI):
     global _adapters
     setup_logging(settings.LOG_LEVEL)
-    logger.info("Iniciando servicios...")
+    logfire.info("Iniciando servicios...")
 
     # Create DB tables if they don't exist
-    logger.info("Verificando base de datos...")
+    logfire.info("Verificando base de datos...")
     await create_db_and_tables()
 
     # Initialize adapters
@@ -42,23 +50,24 @@ async def lifespan(app: FastAPI):
 
     # Start all adapters
     for adapter in _adapters:
-        logger.info(f"Iniciando adaptador: {adapter.get_source_name()}")
+        logfire.info(f"Iniciando adaptador: {adapter.get_source_name()}")
         await adapter.start()
 
     yield
 
     # Shutdown all adapters
-    logger.info("Deteniendo servicios...")
+    logfire.info("Deteniendo servicios...")
     for adapter in _adapters:
-        logger.info(f"Deteniendo adaptador: {adapter.get_source_name()}")
+        logfire.info(f"Deteniendo adaptador: {adapter.get_source_name()}")
         try:
             await adapter.stop()
         except Exception as e:
-            logger.error(f"Error deteniendo {adapter.get_source_name()}: {e}")
+            logfire.error(f"Error deteniendo {adapter.get_source_name()}: {e}")
 
 # ── Application Setup ──────────────────────────────────────────────────────────
 
 app = FastAPI(title="Analizavet V2", version="2.0.0", lifespan=lifespan)
+logfire.instrument_fastapi(app)  # Captura todas las peticiones HTTP
 
 @app.get("/", include_in_schema=False)
 async def root_redirect():
@@ -98,7 +107,7 @@ async def get_adapters_status():
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Error global no manejado en {request.url.path}: {exc}")
+    logfire.error(f"Error global no manejado en {request.url.path}: {exc}")
 
     # If it's an HTMX request or browser request, return HTML
     if "text/html" in request.headers.get("accept", "") or request.headers.get("hx-request"):
@@ -121,7 +130,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.warning(f"Error de validación de datos en {request.url.path}: {exc.errors()}")
+    logfire.warning(f"Error de validación de datos en {request.url.path}: {exc.errors()}")
     return JSONResponse(
         status_code=422,
         content={"detail": "Los datos enviados son incorrectos o están incompletos.", "errores": exc.errors()}

@@ -1,7 +1,8 @@
-# Skill Registry: analizavet-v2-26deabril
+# Skill Registry: analizavet-v2
 
-**Generated**: 2026-04-26  
-**Project**: analizavet-v2-26deabril  
+**Generated**: 2026-04-29
+**Updated**: 2026-04-29 (SDD re-initialization)
+**Project**: analizavet-v2
 **Mode**: engram persistence
 
 ---

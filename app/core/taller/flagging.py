@@ -1,4 +1,4 @@
-from loguru import logger
+import logfire
 from app.schemas.flagging import FlagResult
 from clinical_standards import VETERINARY_STANDARDS
 
@@ -20,7 +20,7 @@ class ClinicalFlaggingService:
         
         param_data = VETERINARY_STANDARDS.get(parameter)
         if not param_data:
-            logger.warning(f"Parameter {parameter} not found in standards")
+            logfire.warning(f"Parameter {parameter} not found in standards")
             return FlagResult(
                 parameter=parameter,
                 value=value,
@@ -31,7 +31,7 @@ class ClinicalFlaggingService:
 
         ranges = param_data["ranges"].get(species_key)
         if not ranges:
-            logger.warning(f"No reference range for {parameter} in {species}")
+            logfire.warning(f"No reference range for {parameter} in {species}")
             return FlagResult(
                 parameter=parameter,
                 value=value,

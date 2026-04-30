@@ -65,21 +65,44 @@ else
     echo "✅ Redis ya está corriendo"
 fi
 
-# 8. Iniciar Dramatiq workers en segundo plano
-echo "🎭 Iniciando workers de Dramatiq..."
-uv run dramatiq app.tasks --threads 2 --processes 1 &
+# 8. Limpiar puertos 9191/9200 (Prometheus middleware) antes de iniciar worker
+echo "Limpiando puertos 9191/9200..."
+lsof -ti:9191 -ti:9200 2>/dev/null | xargs -r kill 2>/dev/null || fuser -k 9191/tcp 9200/tcp 2>/dev/null || true
+
+# 9. Iniciar Dramatiq worker en segundo plano
+echo "🎭 Iniciando worker de Dramatiq..."
+uv run dramatiq app.tasks:broker --threads 2 &
 DRAMATIQ_PID=$!
+sleep 3
+
+# Verify Dramatiq is running
+if kill -0 $DRAMATIQ_PID 2>/dev/null; then
+    echo "✅ Worker de Dramatiq iniciado (PID: $DRAMATIQ_PID)"
+else
+    echo "❌ Worker de Dramatiq falló al iniciar"
+    exit 1
+fi
 
 # 9. Iniciar servidor FastAPI
 echo "🌐 Iniciando servidor FastAPI..."
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
 SERVER_PID=$!
+sleep 3
 
-# 10. Esperar que el puerto esté listo
+# Verify uvicorn is running
+if kill -0 $SERVER_PID 2>/dev/null; then
+    echo "✅ Proceso FastAPI iniciado (PID: $SERVER_PID)"
+else
+    echo "❌ Proceso FastAPI falló al iniciar"
+    exit 1
+fi
+
+# Verify uvicorn responds to health checks
 echo "⏳ Esperando servidor..."
 for i in {1..30}; do
     if curl -s http://localhost:8000/health &> /dev/null; then
-        echo "✅ Servidor listo en http://localhost:8000"
+        echo "✅ Servidor FastAPI corriendo en http://localhost:8000"
+        echo "🔥 Logfire activo — observa los logs en esta terminal"
         break
     fi
     sleep 0.5

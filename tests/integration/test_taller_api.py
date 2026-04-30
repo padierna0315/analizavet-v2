@@ -527,3 +527,166 @@ async def test_taller_page_shows_aplicar_algoritmos_button(client: AsyncClient):
     # Button should use HTMX to POST to the algorithms endpoint
     assert "hx-post" in html
     assert f"/taller/algorithms/{result_id}" in html
+import pytest
+from datetime import datetime, timezone
+from httpx import AsyncClient
+
+def make_lab_values():
+    """Real-ish values from Ozelle log."""
+    return [
+        {
+            "parameter_code": "WBC",
+            "parameter_name_es": "Leucocitos",
+            "raw_value": "14.26",
+            "numeric_value": 14.26,
+            "unit": "10*9/L",
+            "reference_range": "5.05-16.76",
+            "machine_flag": "N",
+        },
+        {
+            "parameter_code": "RBC",
+            "parameter_name_es": "Eritrocitos",
+            "raw_value": "7.2",
+            "numeric_value": 7.2,
+            "unit": "10*12/L",
+            "reference_range": "5.65-8.87",
+            "machine_flag": "N",
+        },
+        {
+            "parameter_code": "HGB",
+            "parameter_name_es": "Hemoglobina",
+            "raw_value": "5.0",
+            "numeric_value": 5.0,
+            "unit": "g/dL",
+            "reference_range": "13.1-20.5",
+            "machine_flag": "L",
+        },
+    ]
+
+async def register_patient(client: AsyncClient) -> int:
+    """Helper: register a patient and return patient_id."""
+    r = await client.post("/reception/receive", json={
+        "raw_string": "kitty felina 2a Laura Cepeda",
+        "source": "LIS_OZELLE",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    })
+    assert r.status_code == 200
+    return r.json()["patient_id"]
+
+# ── Pending Patients Endpoint Tests ────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_pending_patients_endpoint_returns_html_fragment(client: AsyncClient):
+    """GET /taller/pending-patients should return HTML fragment, not 422."""
+    # First create a test result
+    patient_id = await register_patient(client)
+    enrich = await client.post("/taller/enrich", json={
+        "patient_id": patient_id,
+        "species": "Felino",
+        "test_type": "Hemograma",
+        "test_type_code": "CBC",
+        "source": "LIS_OZELLE",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "values": make_lab_values(),
+    })
+    assert enrich.status_code == 200
+
+    # Now check pending-patients endpoint
+    response = await client.get("/taller/pending-patients")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    html = response.text
+    # Should contain patient info from our test
+    assert "Kitty" in html or "No hay pacientes en cola" in html
+    # Should NOT be a JSON error response
+    assert "detail" not in html
+
+
+@pytest.mark.asyncio
+async def test_pending_patients_not_confused_with_result_route(client: AsyncClient):
+    """GET /taller/pending-patients should NOT match /taller/{result_id} route."""
+    # This endpoint should work even with string 'pending-patients'
+    # that could be mistaken for a numeric result_id
+    response = await client.get("/taller/pending-patients")
+    assert response.status_code == 200
+    # Should return HTML, not 422 validation error
+    assert response.status_code != 422
+    assert "text/html" in response.headers["content-type"]
+
+
+# ── Image Base64 Extraction Tests ────────────────────────────────────────────
+
+@pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_image_base64_extraction_with_trailing_chars():
+    """Base64 image data should be cleaned of trailing HL7 chars like ||||||F."""
+    from app.satellites.ozelle.hl7_parser import parse_hl7_message
+    import base64
+    
+    # Create a minimal valid JPEG (SOI + EOI markers)
+    JPEG_MINI = base64.b64encode(b'\xff\xd8\xff\xe0' + b'\x00' * 10 + b'\xff\xd9').decode()
+    
+    # HL7 message with Base64^ prefix and trailing ||||||F
+    hl7_msg = (
+        "MSH|^~\\&|EHVT-50|HUELLAS LAB|||20260414164534||ORU^R01||P|2.3.1|\n"
+        "PID|1||||||20240414|F|test patient|DOG|||\n"
+        "OBR|1|||CBC^Complete Blood Count|R|20260414164017|\n"
+        f"OBX|1|ED|RBC_Histo||Base64^/{JPEG_MINI}/9k=||||||F\n"
+    )
+    
+    parsed = parse_hl7_message(hl7_msg)
+    
+    assert len(parsed.images) == 1
+    img = parsed.images[0]
+    assert img.obs_identifier == "RBC_Histo"
+    # Should have extracted only the Base64 portion between /9j/ and /9k=
+    # The parser extracts the Base64 between /9j/ and /9k=
+    assert img.base64_data == "/9j/" + JPEG_MINI.split("/9j/")[1]
+    assert not img.base64_data.startswith("Base64^")
+    assert "/9k=" not in img.base64_data
+    assert "||||||" not in img.base64_data
+
+@pytest.mark.asyncio
+async def test_translated_image_names(client: AsyncClient):
+    """Image filenames should use Spanish translations from IMAGE_PARAMETER_TRANSLATION."""
+    import base64
+    JPEG_MINI = base64.b64encode(b'\xff\xd8\xff\xe0' + b'\x00' * 10 + b'\xff\xd9').decode()
+    
+    patient_id = await register_patient(client)
+    enrich = await client.post("/taller/enrich", json={
+        "patient_id": patient_id,
+        "species": "Felino",
+        "test_type": "Hemograma",
+        "test_type_code": "CBC",
+        "source": "LIS_OZELLE",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "values": make_lab_values(),
+    })
+    result_id = enrich.json()["test_result_id"]
+
+    # Upload images with various codes
+    response = await client.post("/taller/images", json={
+        "test_result_id": result_id,
+        "patient_name": "Kitty",
+        "owner_name": "Laura Cepeda",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "images": [
+            {"obs_identifier": "WBC_Main", "base64_data": JPEG_MINI},
+            {"obs_identifier": "HGB_Histo", "base64_data": JPEG_MINI},
+            {"obs_identifier": "HCT_Part1", "base64_data": JPEG_MINI},
+        ],
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_saved"] == 3
+    
+    # Check that images were saved with translated names
+    result_data = await client.get(f"/taller/results/{result_id}")
+    images = result_data.json()["images"]
+    assert len(images) == 3
+    
+    # Should have Leucocitos (WBC), Hemoglobina (HGB), Hematocrito (HCT)
+    param_names = [img["parameter_name_es"] for img in images]
+    assert "Leucocitos" in param_names
+    assert "Hemoglobina" in param_names
+    assert "Hematocrito" in param_names

@@ -1,7 +1,7 @@
 import unicodedata
 from datetime import datetime, timezone
 
-from loguru import logger
+import logfire
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +46,7 @@ class BaulService:
             await session.commit()
             await session.refresh(existing)
             
-            logger.info(
+            logfire.info(
                 f"Paciente existente: {patient.name} ({patient.species}) "
                 f"- Tutor: {patient.owner_name} [id={existing.id}]"
             )
@@ -74,7 +74,7 @@ class BaulService:
         await session.commit()
         await session.refresh(db_patient)
 
-        logger.info(
+        logfire.info(
             f"Nuevo paciente: {patient.name} ({patient.species}) "
             f"- Tutor: {patient.owner_name} [id={db_patient.id}]"
         )

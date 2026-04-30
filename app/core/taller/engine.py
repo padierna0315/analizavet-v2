@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from loguru import logger
+import logfire
 
 from app.models.test_result import TestResult
 from app.models.lab_value import LabValue
@@ -44,7 +44,7 @@ class TallerFlaggingEngine:
         for raw in request.values:
             if raw.numeric_value is None:
                 # Non-numeric result: keep as NORMAL with a warning
-                logger.warning(
+                logfire.warning(
                     f"Valor no numérico para {raw.parameter_code}: '{raw.raw_value}'. "
                     f"Se asigna flag=NORMAL. Verificar manualmente."
                 )
@@ -95,7 +95,7 @@ class TallerFlaggingEngine:
         await session.commit()
         await session.refresh(test_result)
 
-        logger.info(
+        logfire.info(
             f"TestResult {request.test_result_id} procesado: "
             f"ALTO={summary['ALTO']} NORMAL={summary['NORMAL']} BAJO={summary['BAJO']}"
         )

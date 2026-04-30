@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.reception import RawPatientInput, BaulResult
 from app.core.reception.normalizer import parse_patient_string
 from app.core.reception.baul import BaulService
-from loguru import logger
+import logfire
 
 
 class ReceptionService:
@@ -16,7 +16,7 @@ class ReceptionService:
     async def receive(
         self, raw_input: RawPatientInput, session: AsyncSession
     ) -> BaulResult:
-        logger.info(
+        logfire.info(
             f"Recibiendo paciente: '{raw_input.raw_string}' "
             f"[fuente={raw_input.source.value}]"
         )

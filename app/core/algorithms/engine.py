@@ -6,7 +6,7 @@ Pure algorithm logic lives in registry.py (no framework deps).
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from loguru import logger
+import logfire
 
 from app.models.test_result import TestResult
 from app.models.lab_value import LabValue
@@ -71,7 +71,7 @@ class ClinicalAlgorithmsEngine:
             await session.commit()
             for lv in new_values:
                 await session.refresh(lv)
-            logger.info(
+            logfire.info(
                 f"Algorithms applied to TestResult {test_result_id}: "
                 f"{len(new_values)} new LabValues, {len(algorithm_errors)} errors."
             )
