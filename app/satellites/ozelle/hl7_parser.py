@@ -11,7 +11,7 @@ import re
 from loguru import logger
 
 from app.schemas.taller import RawLabValueInput, ImageUploadItem
-from app.core.taller.images import _translate_base_code
+from app.core.taller.images import _translate_base_code, _parse_obs_identifier
 
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
@@ -65,11 +65,13 @@ _TEST_TYPE_MAP = {
 # ── Parser ───────────────────────────────────────────────────────────────────
 
 
-def parse_hl7_message(raw_message: str) -> ParsedOzelleMessage:
+def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzelleMessage:
     """Parse raw HL7 string from Ozelle into a structured Pydantic model.
 
     Args:
-        raw_message: Raw HL7 message string (may use \\r, \\n, or both as separators).
+        raw_message: Raw HL7 message string (may use \r, \n, or both as separators).
+        source: Source system (e.g. "LIS_FILE", "LIS_OZELLE"). When "LIS_FILE",
+                received_at uses datetime.now() instead of MSH[6].
 
     Returns:
         ParsedOzelleMessage with all extracted data.
@@ -109,7 +111,7 @@ def parse_hl7_message(raw_message: str) -> ParsedOzelleMessage:
                     )
 
             # Extract message date from MSH[6] (index 6)
-            if len(parts) > 6 and parts[6]:
+            if source != "LIS_FILE" and len(parts) > 6 and parts[6]:
                 date_str = parts[6]
                 # Format: YYYYMMDDHHMMSS
                 if len(date_str) == 14 and date_str.isdigit():
@@ -159,7 +161,8 @@ def parse_hl7_message(raw_message: str) -> ParsedOzelleMessage:
                     numeric_val = None
 
                 # Extract base parameter code (strip #, %, etc. for translation)
-                base_code = obs_id_full.replace("#", "").replace("%", "")
+                base_code, _ = _parse_obs_identifier(obs_id_full)
+                base_code = base_code.replace("#", "").replace("%", "")
                 parameter_name_es = _translate_base_code(base_code)
 
                 lab_values.append(
@@ -176,6 +179,18 @@ def parse_hl7_message(raw_message: str) -> ParsedOzelleMessage:
 
             # ── Image (ED type) ─────────────────────────────────────────────
             elif value_type == "ED":
+                # Remove Base64^ prefix if present, keep only the actual base64 data
+                if obs_value.startswith("Base64^"):
+                    obs_value = obs_value[7:]  # Remove "Base64^" prefix
+                
+                # Extract only the Base64 portion (from /9j/ to /9k=)
+                # Discard any HL7 trailing characters (like ||||||F)
+                start_idx = obs_value.find("/9j/")
+                end_idx = obs_value.find("/9k=")
+                if start_idx != -1 and end_idx != -1:
+                    # Extract from /9j/ up to (but not including) /9k=
+                    obs_value = obs_value[start_idx:end_idx]
+                
                 images.append(
                     ImageUploadItem(
                         obs_identifier=obs_id_full,

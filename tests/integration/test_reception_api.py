@@ -3,6 +3,83 @@ from datetime import datetime, timezone
 from httpx import AsyncClient
 
 
+# ── POST /reception/upload ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_upload_empty_file(client: AsyncClient):
+    """Upload endpoint should reject empty HL7 files with 422."""
+    response = await client.post(
+        "/reception/upload",
+        files={"file": ("empty.txt", b"", "text/plain")}
+    )
+    # Should return HTTP 422 for empty file
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
+    assert "empty" in data["detail"].lower()
+
+@pytest.mark.asyncio
+async def test_upload_invalid_hl7_format(client: AsyncClient):
+    """Upload endpoint should reject file missing MSH segment with 422."""
+    content = b"Some random text without HL7 headers"
+    response = await client.post(
+        "/reception/upload",
+        files={"file": ("invalid.txt", content, "text/plain")}
+    )
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
+    assert "MSH" in data["detail"].upper() or "format" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_upload_hl7_batch_file(client: AsyncClient, stub_broker):
+    """Upload endpoint should accept HL7 batch file and enqueue for processing."""
+    # Create a minimal valid HL7 batch-like content with MLLP framing
+    # Simple HL7 message wrapped with MLLP framing chars
+    hl7_batch = (
+        b'\x0bMSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\n'
+        b'PID|1|||TEST^PATIENT||19800101|M|||123 MAIN ST\r\n'
+        b'OBR|1|||TEST^TEST|||20260414120000|||||||\r\n'
+        b'OBX|1|ST|PARAM^Parameter||value|unit|ref|||F\r\n'
+        b'\x1c\r'
+    )
+    
+    response = await client.post(
+        "/reception/upload",
+        files={"file": ("batch.hl7", hl7_batch, "text/plain")}
+    )
+    # Should redirect to /taller/
+    assert response.status_code == 200  # Followed redirect
+    assert "/taller" in str(response.url)
+    
+    # Check that message was enqueued in stub broker
+    q = stub_broker.queues["default"]
+    assert q.qsize() >= 1
+
+
+@pytest.mark.asyncio
+async def test_upload_hl7_multiple_messages(client: AsyncClient, stub_broker):
+    """Upload endpoint should handle batch file with multiple messages."""
+    hl7_batch = (
+        b'\x0bMSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\n'
+        b'PID|1|||FIRST^PATIENT||19800101|M|||123 ST\r\n'
+        b'OBX|1|ST|PARAM^P||val|u|ref|||F\r\n'
+        b'\x1c\r'
+        b'\x0bMSH|^~\\&|TEST|LAB|||20260414120001||ORU^R01|2|P|2.3.1\r\n'
+        b'PID|1|||SECOND^PATIENT||19900101|M|||456 ST\r\n'
+        b'OBX|1|ST|PARAM^P||val|u|ref|||F\r\n'
+        b'\x1c\r'
+    )
+    
+    response = await client.post(
+        "/reception/upload",
+        files={"file": ("batch.hl7", hl7_batch, "text/plain")}
+    )
+    assert response.status_code == 200
+    assert "/taller" in str(response.url)
+
+
 # ── POST /reception/receive ───────────────────────────────────────────────────
 
 @pytest.mark.asyncio

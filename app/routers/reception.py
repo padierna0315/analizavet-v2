@@ -105,11 +105,21 @@ async def upload_hl1_batch(
         # Convert bytes to string for JSON serialization (Dramatiq)
         content_str = content.decode('utf-8')
         
+        # Validate not empty
+        if not content_str.strip():
+            raise HTTPException(status_code=422, detail="HL7 file is empty")
+        
+        # Validate contains MSH segment (basic HL7 format check)
+        if "MSH|" not in content_str:
+            raise HTTPException(status_code=422, detail="Invalid HL7 format: missing MSH segment")
+        
         # Send the file content to the Dramatiq actor for processing
         process_uploaded_batch.send(content_str)
         
         logger.info(f"Received HL7 batch file: {file.filename}")
-        return RedirectResponse(url="/recepcion", status_code=303)
+        return RedirectResponse(url="/taller/", status_code=303)
+    except HTTPException:
+        raise  # re-raise HTTPException as is
     except Exception as e:
         logger.error(f"Error processing HL7 batch file: {e}")
         raise HTTPException(status_code=500, detail="Error processing HL7 file")
