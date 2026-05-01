@@ -193,8 +193,8 @@ def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzel
                 start_idx = obs_value.find("/9j/")
                 end_idx = obs_value.find("/9k=")
                 if start_idx != -1 and end_idx != -1:
-                    # Extract from /9j/ up to (but not including) /9k=
-                    obs_value = obs_value[start_idx:end_idx]
+                    # Extract from /9j/ up to AND INCLUDING /9k=
+                    obs_value = obs_value[start_idx:end_idx + 4]  # +4 to include "/9k="
                 
                 images.append(
                     ImageUploadItem(
