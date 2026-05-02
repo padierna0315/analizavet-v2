@@ -96,28 +96,84 @@ async def list_patients(
 async def upload_hl1_batch(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    request: Request = None,
 ):
-    """Handle HL7 batch file upload and process it."""
+    """Handle HL7 batch file upload and process it.
+    
+    Accepts a plain text HL7 batch file (typically .txt or .hl7) containing one or
+    more HL7 messages. The file is validated for basic HL7 structure and then
+    processed asynchronously via Dramatiq.
+    
+    Returns 202 Accepted with status details (JSON or HTML fragment for HTMX).
+    """
     try:
         # Read the file content
         content = await file.read()
         
+        # Basic file type validation: reject common image extensions
+        filename_lower = file.filename.lower()
+        if filename_lower.endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff')):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid file type: {file.filename}. Expected HL7 text file (.txt, .hl7)"
+            )
+        
         # Convert bytes to string for JSON serialization (Dramatiq)
-        content_str = content.decode('utf-8')
+        try:
+            content_str = content.decode('utf-8')
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail="File must be UTF-8 encoded text (HL7 format)"
+            )
         
         # Validate not empty
         if not content_str.strip():
             raise HTTPException(status_code=422, detail="HL7 file is empty")
         
-        # Validate contains MSH segment (basic HL7 format check)
-        if "MSH|" not in content_str:
-            raise HTTPException(status_code=422, detail="Invalid HL7 format: missing MSH segment")
+        # Validate contains MSH segment at start of a line (basic HL7 format check)
+        # Look for MSH| at the beginning of any line (allowing leading whitespace)
+        lines = content_str.splitlines()
+        has_msh = any(line.lstrip().startswith('MSH|') for line in lines)
+        if not has_msh:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid HL7 format: no MSH segment found at start of any line. "
+                       "File must contain HL7 messages."
+            )
         
         # Send the file content to the Dramatiq actor for processing
         process_uploaded_batch.send(content_str)
         
-        logfire.info(f"Received HL7 batch file: {file.filename}")
-        return RedirectResponse(url="/taller/", status_code=303)
+        logfire.info(
+            f"Received HL7 batch file: {file.filename} "
+            f"({len(content)} bytes, {len(lines)} lines)"
+        )
+        
+        # Prepare response based on client type
+        is_hx_request = request and request.headers.get('hx-request') == 'true'
+        response_data = {
+            "status": "accepted",
+            "message": f"HL7 batch file '{file.filename}' accepted for processing",
+            "filename": file.filename,
+            "size": len(content),
+            "processing": "async"
+        }
+        
+        if is_hx_request:
+            # For HTMX, return a styled success message
+            return templates.TemplateResponse(
+                "recepcion/upload_success.html",
+                {"request": request, **response_data},
+                status_code=202
+            )
+        else:
+            # For API clients, return JSON
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=202,
+                content=response_data
+            )
     except HTTPException:
         raise  # re-raise HTTPException as is
     except Exception as e:
