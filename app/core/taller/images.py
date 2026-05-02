@@ -3,11 +3,13 @@ import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+
 import logfire
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.models.patient_image import PatientImage
+from app.models.test_result import TestResult
 from app.schemas.taller import ImageUploadRequest, ImageUploadResult
 from app.config import settings
 from app.core.taller.triage import seleccionar_mejores_imagenes
@@ -197,6 +199,15 @@ class ImageHandlingService:
     ) -> ImageUploadResult:
         """Decode Base64 images and save to disk + DB."""
 
+        # ── Valida que el TestResult exista antes de procesar imágenes ────────
+        result_check = await session.get(TestResult, request.test_result_id)
+        if not result_check:
+            raise ValueError(
+                f"TestResult {request.test_result_id} no encontrado. "
+                f"No se pueden asociar imágenes a un registro inexistente."
+            )
+
+        # ── Prepara carpeta del paciente ──────────────────────────────────────
         patient_folder = _build_patient_folder(
             request.patient_name,
             request.owner_name,
@@ -205,8 +216,10 @@ class ImageHandlingService:
         )
         patient_folder.mkdir(parents=True, exist_ok=True)
 
-        saved = []
-        failed = []
+        saved: list[dict] = []
+        failed: list[dict] = []
+        # Lista de archivos creados en disco (para limpieza si falla commit)
+        created_files: list[Path] = []
         # Track obs_identifiers seen in this batch to detect duplicates
         seen_identifiers: set[str] = set()
 
@@ -240,6 +253,7 @@ class ImageHandlingService:
                     )
 
                 file_path.write_bytes(image_data)
+                created_files.append(file_path)
 
                 db_image = PatientImage(
                     test_result_id=request.test_result_id,
@@ -269,7 +283,44 @@ class ImageHandlingService:
                     "error": str(e),
                 })
 
-        # Apply image triage BEFORE committing — modifies is_included_in_report in-place
+        # ── Commit de registros en DB ────────────────────────────────────────
+        # Si hubo imágenes válidas (saved), intentamos persistir.
+        # Si el commit falla (ej. FK violation, constraint), revertimos
+        # los archivos creados para evitar inconsistencias disco/DB.
+        if saved:
+            try:
+                await session.commit()
+                logfire.info(
+                    f"Commit ejecutado. Imágenes TestResult {request.test_result_id}: "
+                    f"{len(saved)} guardadas, {len(failed)} fallidas"
+                )
+            except Exception as commit_err:
+                # Rollback de la sesión para dejarla en estado limpio
+                await session.rollback()
+                # Borrar archivos creados (rollback compensatorio)
+                for fpath in created_files:
+                    try:
+                        fpath.unlink(missing_ok=True)
+                        logfire.warning(f"Rollback: archivo eliminado {fpath}")
+                    except Exception as del_err:
+                        logfire.error(f"No se pudo eliminar {fpath} tras rollback: {del_err}")
+                raise ValueError(
+                    f"Fallo al persistir imágenes en la base de datos: {commit_err}. "
+                    f"Archivos en disco han sido revertidos."
+                ) from commit_err
+        elif failed:
+            # No había imágenes válidas para guardar, pero hubo errores.
+            # No hay commit necesario (no se añadió nada a la sesión).
+            logfire.info(
+                f"Ninguna imagen válida para TestResult {request.test_result_id}. "
+                f"{len(failed)} fallidas."
+            )
+        else:
+            # No images in request
+            logfire.info(f"No images to process for TestResult {request.test_result_id}")
+
+        # ── Aplicar triage SOLO si hubo imágenes guardadas (DB + disco) ─────
+        # El triage necesita IDs reales (post-commit) para referenciar correctamente
         if saved:
             all_images = await session.execute(
                 select(PatientImage).where(
@@ -281,11 +332,7 @@ class ImageHandlingService:
             for img in img_list:
                 session.add(img)
             await session.commit()
-
-        logfire.info(
-            f"Imágenes TestResult {request.test_result_id}: "
-            f"{len(saved)} guardadas, {len(failed)} fallidas"
-        )
+            logfire.debug(f"Triage aplicado a {len(img_list)} imágenes")
 
         return ImageUploadResult(
             test_result_id=request.test_result_id,
