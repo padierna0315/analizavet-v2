@@ -9,8 +9,6 @@ venv/
 ENV/
 env/
 
-# UV - Archivo de bloqueo NO subir al repo
-uv.lock
 
 # IDEs
 .vscode/
