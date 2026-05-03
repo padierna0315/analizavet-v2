@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sala de Espera - Taller</title>
+</head>
+<body>
+    <h1>Sala de Espera Persistente</h1>
+    <div class="waiting-room-grid">
+        {% for patient in patients %}
+        <div class="patient-card">
+            <h3>{{ patient.name }}</h3>
+            <p>Especie: {{ patient.species }}</p>
+            <p>Tutor: {{ patient.owner_name }}</p>
+            <p>Edad: {{ patient.age_display or 'N/A' }}</p>
+            <p>Código de sesión: {{ patient.session_code or 'N/A' }}</p>
+            <p>Estado en sala: {{ patient.waiting_room_status }}</p>
+            <p>Fuentes recibidas: 
+                {% for source in patient.sources_received %}
+                    {{ source }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </p>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>

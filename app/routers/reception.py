@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
@@ -9,6 +9,8 @@ from app.models.patient import Patient
 from app.models.test_result import TestResult
 from app.core.reception.service import ReceptionService
 import uuid
+import json
+from datetime import datetime, timezone
 
 import logfire
 # Import Dramatiq actor for batch processing
@@ -235,6 +237,22 @@ async def get_recepcion(request: Request, session: AsyncSession = Depends(get_se
     return templates.TemplateResponse("recepcion/index.html", {
         "request": request,
         "patients": patients_list
+    })
+
+
+@router.get("/taller/reception", response_class=HTMLResponse)
+async def get_taller_reception(
+    request: Request, 
+    session: AsyncSession = Depends(get_session)
+):
+    """Endpoint to serve the waiting room (sala de espera) data for the Taller view."""
+    patients_data = await _service.get_waiting_room_patients(session)
+    
+    # For now, return a simple placeholder template that lists patient names
+    # This will be replaced with the full grid component in a later task
+    return templates.TemplateResponse("taller/reception.html", {
+        "request": request,
+        "patients": patients_data
     })
 
 
