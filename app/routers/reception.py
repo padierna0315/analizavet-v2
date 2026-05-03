@@ -256,4 +256,19 @@ async def get_taller_reception(
     })
 
 
+@router.get("/patient/{patient_id}/confirm-delete", response_class=HTMLResponse)
+async def confirm_delete_patient(
+    patient_id: int,
+    request: Request,
+):
+    """Show confirmation dialog for deleting a patient from the waiting room."""
+    return templates.TemplateResponse(
+        "reception/partials/confirm_delete.html",
+        {
+            "request": request,
+            "patient_id": patient_id
+        }
+    )
+
+
 

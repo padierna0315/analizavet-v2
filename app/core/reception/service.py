@@ -24,6 +24,71 @@ class ReceptionService:
             f"[fuente={raw_input.source.value}]"
         )
         normalized = parse_patient_string(raw_input.raw_string, raw_input.source)
+        
+        # Import the normalization function for deduplication
+        from app.core.reception.baul import _normalize_for_comparison
+        
+        # Check if patient already exists using deduplication key
+        norm_name = _normalize_for_comparison(normalized.name)
+        norm_owner = _normalize_for_comparison(normalized.owner_name)
+        
+        existing_patient = await self._baul._find_existing(
+            session, norm_name, norm_owner, normalized.species
+        )
+        
+        if existing_patient:
+            # Patient exists - implement merge logic per spec
+            logfire.info(
+                f"Paciente existente encontrado: {normalized.name} ({normalized.species}) "
+                f"- Tutor: {normalized.owner_name} [id={existing_patient.id}]"
+            )
+            
+            # Parse sources_received if it exists
+            sources_received = []
+            if existing_patient.sources_received:
+                try:
+                    sources_received = json.loads(existing_patient.sources_received)
+                except (json.JSONDecodeError, TypeError):
+                    sources_received = []
+            
+            # Add the new source if not already present
+            new_source_value = raw_input.source.value
+            if new_source_value not in sources_received:
+                sources_received.append(new_source_value)
+                existing_patient.sources_received = json.dumps(sources_received)
+            
+            # Update demographic fields from new data
+            # Per spec: JSON updates patient name, species, age, owner
+            # Ozelle data (lab values) is SACRED and preserved in TestResult
+            existing_patient.name = normalized.name
+            existing_patient.species = normalized.species
+            existing_patient.sex = normalized.sex
+            existing_patient.owner_name = normalized.owner_name
+            existing_patient.has_age = normalized.has_age
+            existing_patient.age_value = normalized.age_value
+            existing_patient.age_unit = normalized.age_unit
+            existing_patient.age_display = normalized.age_display
+            
+            # Update timestamp
+            from datetime import datetime, timezone
+            existing_patient.updated_at = datetime.now(timezone.utc)
+            
+            session.add(existing_patient)
+            await session.commit()
+            await session.refresh(existing_patient)
+            
+            logfire.info(
+                f"Paciente actualizado: {normalized.name} ({normalized.species}) "
+                f"- Tutor: {normalized.owner_name} [id={existing_patient.id}]"
+            )
+            
+            return BaulResult(
+                patient_id=existing_patient.id,
+                created=False,
+                patient=normalized,
+            )
+        
+        # Create new patient (existing flow)
         result = await self._baul.register(normalized, session)
         return result
 
