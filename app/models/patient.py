@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
-from typing import Optional, TYPE_CHECKING
-from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, TYPE_CHECKING, List
+import json
+from sqlmodel import SQLModel, Field, Relationship, Column
+from sqlalchemy.dialects.postgresql import JSON as SQLModelJSON
 
 if TYPE_CHECKING:
     from app.models.test_result import TestResult
@@ -28,6 +30,11 @@ class Patient(SQLModel, table=True):
     
     # Source tracking
     source: str                 # PatientSource value as string
+    
+    # Waiting room fields (for sala-espera-persistente)
+    session_code: Optional[str] = Field(default=None, index=True)  # e.g., "A1-20260501"
+    waiting_room_status: str = Field(default="active")  # active, deleted, pdf_generated
+    sources_received: Optional[List[str]] = Field(default=None, sa_column=Column(SQLModelJSON))  # Track which sources have provided data (Ozelle, Fujifilm, JSON)
     
     # Deduplication keys (normalized: lowercase + no accents)
     # These are used for comparison only — never displayed
