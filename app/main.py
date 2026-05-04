@@ -28,15 +28,13 @@ if settings.LOGFIRE_ENABLED:
     logfire.instrument_pydantic()  # Captura validaciones de Pydantic
 
 
-# Global list of active adapters
-_adapters = []
-_mllp_running: bool = False # estado actual de los servidores MLLP
+# Estado MLLP — en módulo separado para compartir entre main.py y routers/mllp.py
+import app.mllp_state as mllp_state
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _adapters, _mllp_running
     setup_logging(settings.LOG_LEVEL)
     logfire.info("Iniciando servicios...")
 
@@ -50,26 +48,25 @@ async def lifespan(app: FastAPI):
         ozelle_port = getattr(settings, "OZELLE_PORT", 6000)
         fujifilm_port = getattr(settings, "FUJIFILM_PORT", 6001)
 
-        _adapters = [
+        mllp_state.adapters = [
             OzelleAdapter(port=ozelle_port),
             FujifilmAdapter(port=fujifilm_port),
         ]
 
-        # Start all adapters
-        for adapter in _adapters:
+        for adapter in mllp_state.adapters:
             logfire.info(f"Iniciando adaptador: {adapter.get_source_name()}")
             await adapter.start()
-        _mllp_running = True
+        mllp_state.running = True
     else:
-        logfire.info("Entorno de testing detectado o MLLP_ENABLED es False. Saltando inicialización de adaptadores externos.")
-        _adapters = [] # Ensure _adapters is an empty list in testing mode
-        _mllp_running = False
+        logfire.info("MLLP_ENABLED=False. Adaptadores no iniciados — usa el botón en la UI para arrancarlos.")
+        mllp_state.adapters = []
+        mllp_state.running = False
 
     yield
 
     # Shutdown all adapters
     logfire.info("Deteniendo servicios...")
-    for adapter in _adapters:
+    for adapter in mllp_state.adapters:
         logfire.info(f"Deteniendo adaptador: {adapter.get_source_name()}")
         try:
             await adapter.stop()
