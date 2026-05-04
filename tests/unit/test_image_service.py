@@ -152,6 +152,26 @@ def test_translate_unknown_code():
     result = _translate_base_code("UNKNOWN_XYZ")
     assert "desconocido" in result
 
+@pytest.mark.parametrize("code, expected", [
+    ("NST/WBC", "Bandas"),
+    ("NST/NEU", "Bandas"),
+    ("NSH/WBC", "Neutrofilos_Hiperseg"),
+    ("NSH/NEU", "Neutrofilos_Hiperseg"),
+    ("MPV", "Volumen_Plaquetario_Medio"),
+    ("PDW", "Ancho_Distribucion_Plaquetas"),
+    ("PCT", "Plaquetocrito"),
+])
+def test_translate_composite_and_new_codes(code, expected, caplog):
+    # Clear log records to ensure we only capture warnings from this call
+    caplog.clear()
+    
+    # When checking for composite codes, the `_translate_base_code`
+    # function will split the code by '/' if present. The
+    # `caplog` fixture captures log messages.
+    result = _translate_base_code(code)
+    assert result == expected
+    assert "Código de imagen desconocido" not in caplog.text
+
 
 # ── Build filename tests ──────────────────────────────────────────────────────
 

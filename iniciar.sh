@@ -33,9 +33,9 @@ if [ ! -d ".venv" ]; then
     uv venv .venv
 fi
 
-# 4. Instalar dependencias (uv.lock se genera automáticamente)
+# 4. Instalar dependencias desde pyproject.toml (uv.lock gestiona versiones exactas)
 echo "📥 Instalando dependencias..."
-uv pip install -r requirements.txt
+uv sync
 
 # 5. Verificar que existe la carpeta static (CRITICAL per skill-santiago Leccion #1)
 if [ ! -d "app/static" ]; then
@@ -71,7 +71,7 @@ lsof -ti:9191 -ti:9200 2>/dev/null | xargs -r kill 2>/dev/null || fuser -k 9191/
 
 # 9. Iniciar Dramatiq worker en segundo plano
 echo "🎭 Iniciando worker de Dramatiq..."
-uv run dramatiq app.tasks:broker --threads 2 &
+uv run dramatiq app.tasks.broker:redis_broker --threads 2 &
 DRAMATIQ_PID=$!
 sleep 3
 

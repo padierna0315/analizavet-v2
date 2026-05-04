@@ -6,8 +6,10 @@ from app.schemas.reception import RawPatientInput, BaulResult
 from app.core.reception.normalizer import parse_patient_string
 from app.core.reception.baul import BaulService
 from app.models.patient import Patient
+from app.tasks.hl7_processor import process_hl7_message, process_uploaded_batch, set_upload_status
 import json
 import logfire
+import uuid
 
 
 
@@ -102,6 +104,7 @@ class ReceptionService:
         
         Returns patients with waiting_room_status = 'active' formatted for display.
         """
+        from app.models.test_result import TestResult
         query = select(Patient).where(Patient.waiting_room_status == "active")
         query = query.order_by(Patient.updated_at.desc())
         
@@ -111,11 +114,21 @@ class ReceptionService:
         # Format patient data for the waiting room UI
         patients_data = []
         for patient in patients:
-            # sources_received is now a Python list (TypeDecorator handles deserialization)
             sources_received = list(patient.sources_received or [])
+            
+            # Get the most recent TestResult id for this patient
+            tr_query = (
+                select(TestResult.id)
+                .where(TestResult.patient_id == patient.id)
+                .order_by(TestResult.id.desc())
+                .limit(1)
+            )
+            tr_result = await session.execute(tr_query)
+            latest_result_id = tr_result.scalar_one_or_none()
             
             patient_data = {
                 "id": patient.id,
+                "result_id": latest_result_id,
                 "name": patient.name,
                 "species": patient.species,
                 "sex": patient.sex,
@@ -126,7 +139,6 @@ class ReceptionService:
                 "sources_received": sources_received,
                 "created_at": patient.created_at.isoformat() if patient.created_at else None,
                 "updated_at": patient.updated_at.isoformat() if patient.updated_at else None,
-                # For backward compatibility with existing UI
                 "source": patient.source,
                 "normalized_name": patient.normalized_name,
                 "normalized_owner": patient.normalized_owner
@@ -157,27 +169,47 @@ class ReceptionService:
             logfire.warning(f"Patient with id={patient_id} not found for deletion.")
             return False
 
-    async def handle_uploaded_file(self, file_content: bytes, file_type: str, session: AsyncSession):
+    async def handle_uploaded_file(self, file_content: bytes, file_type: str, session: AsyncSession) -> str:
         """
         Routes uploaded file content to the correct parser/handler based on file_type.
+        Returns the upload_id for status tracking.
         """
         logfire.info(f"Handling uploaded file of type {file_type}")
         
         content_str = file_content.decode('utf-8', errors='ignore')
+        upload_id = str(uuid.uuid4()) # Generate a unique ID for this upload
+        set_upload_status(upload_id, "processing") # Set initial status to Redis
 
         match file_type:
             case "ozelle":
-                from app.tasks.hl7_processor import process_hl7_message
-                from app.schemas.reception import PatientSource
-                # Assuming the task can handle the raw string
-                process_hl7_message.send(content_str, PatientSource.LIS_OZELLE.value)
-                logfire.info("Enqueued Ozelle file content for Dramatiq processing.")
+                # Procesar directamente — los archivos son pequeños y el parsing es rápido
+                from app.tasks.hl7_processor import split_hl7_batch
+                from app.satellites.ozelle.hl7_parser import parse_hl7_message, HeartbeatMessageException, HL7ParsingError
+                from app.tasks.hl7_processor import _async_process_pipeline
+                
+                messages = split_hl7_batch(content_str)
+                count = 0
+                for msg in messages:
+                    try:
+                        parsed = parse_hl7_message(msg, "LIS_OZELLE")
+                        await _async_process_pipeline(parsed, "LIS_OZELLE")
+                        count += 1
+                    except HeartbeatMessageException:
+                        continue
+                    except (HL7ParsingError, Exception) as e:
+                        logfire.error(f"Error procesando mensaje del batch: {e}")
+                        continue
+                
+                set_upload_status(upload_id, f"complete:{count}")
+                logfire.info(f"Procesados {count} pacientes del archivo Ozelle.")
             
             case "fujifilm":
+                # Assuming fujifilm processor can handle batch or single message as well
+                # For now, it sends the whole content as a single message.
                 from app.tasks.fujifilm_processor import process_fujifilm_message
-                process_fujifilm_message.send(content_str)
+                process_fujifilm_message.send(content_str) # This needs to be updated to handle file_type and upload_id if it's a batch
                 logfire.info("Enqueued Fujifilm file content for Dramatiq processing.")
-
+            
             case "json":
                 try:
                     data = json.loads(content_str)
@@ -199,9 +231,11 @@ class ReceptionService:
                     raise ValueError(f"Error inesperado al procesar el archivo JSON: {e}")
             
             case _:
+                # If file_type is unknown, set error status and raise exception
+                set_upload_status(upload_id, f"error:Tipo de archivo no soportado: '{file_type}'")
                 raise ValueError(f"Tipo de archivo no soportado: '{file_type}'")
         
-        return {"status": f"{file_type} file accepted for processing"}
+        return upload_id # Return the upload_id for the frontend to poll
 
     async def get_single_patient_for_card(
         self, patient_id: int, session: AsyncSession

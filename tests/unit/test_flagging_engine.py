@@ -180,3 +180,45 @@ async def test_unknown_parameter_does_not_crash(session):
     result = await engine.flag_test_result(request, session)
     assert result.status == "listo"
     assert result.flagged_values[0].flag == "NORMAL"
+
+@pytest.mark.asyncio
+async def test_flag_nsh_canine_high(session):
+    """Verify NSH# for Canine is flagged as ALTO when value is high."""
+    tr = await create_test_result(session)
+    engine = TallerFlaggingEngine()
+
+    # NSH# range for Canine: (0.00, 0.40)
+    values = [RawLabValueInput(
+        parameter_code="NSH#",
+        parameter_name_es="Neutrófilos Hipersegmentados",
+        raw_value="0.50", numeric_value=0.50,
+        unit="x10^3/µL", reference_range="0.00-0.40",
+    )]
+    request = FlagBatchRequest(
+        test_result_id=tr.id, species="Canino", values=values
+    )
+    result = await engine.flag_test_result(request, session)
+    assert result.status == "listo"
+    assert result.flagged_values[0].flag == "ALTO"
+    assert result.flagged_values[0].reference_range == "0.0-0.4 x10^3/µL"
+
+@pytest.mark.asyncio
+async def test_flag_nsh_canine_normal(session):
+    """Verify NSH# for Canine is flagged as NORMAL when value is in range."""
+    tr = await create_test_result(session)
+    engine = TallerFlaggingEngine()
+
+    # NSH# range for Canine: (0.00, 0.40)
+    values = [RawLabValueInput(
+        parameter_code="NSH#",
+        parameter_name_es="Neutrófilos Hipersegmentados",
+        raw_value="0.20", numeric_value=0.20,
+        unit="x10^3/µL", reference_range="0.00-0.40",
+    )]
+    request = FlagBatchRequest(
+        test_result_id=tr.id, species="Canino", values=values
+    )
+    result = await engine.flag_test_result(request, session)
+    assert result.status == "listo"
+    assert result.flagged_values[0].flag == "NORMAL"
+    assert result.flagged_values[0].reference_range == "0.0-0.4 x10^3/µL"

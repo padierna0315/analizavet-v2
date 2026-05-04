@@ -16,8 +16,7 @@ async def test_upload_hl7_batch_file(client: AsyncClient, stub_broker):
         data={"file_type": "ozelle"}
     )
     
-    assert response.status_code == 200
-    assert response.headers.get("HX-Trigger") == "refreshReceptionGrid"
+    assert response.status_code == 202
 
 @pytest.mark.asyncio
 async def test_upload_json_baptism_file(client: AsyncClient, stub_broker):
@@ -30,8 +29,7 @@ async def test_upload_json_baptism_file(client: AsyncClient, stub_broker):
         data={"file_type": "json"}
     )
     
-    assert response.status_code == 200
-    assert response.headers.get("HX-Trigger") == "refreshReceptionGrid"
+    assert response.status_code == 202
 
 
 

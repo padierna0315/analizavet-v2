@@ -42,10 +42,8 @@ htmlcov/
 .pytest_cache/
 
 # Images (uploads)
-images/*.jpg
-images/*.png
-images/*.jpeg
-images/*.gif
+images/
+
 !images/.gitkeep
 
 # Byte-compiled / optimized / DLL files
@@ -75,3 +73,6 @@ settings.local.toml
 
 # Secrets file - NUNCA subir
 .secrets.toml
+
+# Log files
+log_*.txt

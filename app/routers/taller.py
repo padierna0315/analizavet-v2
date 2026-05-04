@@ -698,8 +698,10 @@ async def load_patient_workspace(
       </div>
 
       <div style="margin-top: 1rem; display: flex; gap: 0.75rem;">
-        <a href="/reports/{result_id}/pdf" class="btn btn-primary" target="_blank">
-          📄 Generar PDF
+        <a href="/reports/{result_id}/pdf" 
+           target="_blank" 
+           style="display:inline-block; padding:0.5rem 1rem; background:#2563eb; color:white; border-radius:0.375rem; text-decoration:none; font-weight:600; margin-bottom:1rem;">
+          📄 Descargar PDF
         </a>
         <a href="/patients/{patient['id']}" class="btn btn-secondary">
           📋 Ver Historial

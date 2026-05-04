@@ -208,8 +208,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Neutrófilos Hipersegmentados (Absoluto)',
         'unit': 'x10^3/µL',
         'ranges': {
-            'canine': None,  # Ocasional
-            'feline': None
+            'canine': {'min': 0.00, 'max': 0.40},
+            'feline': {'min': 0.00, 'max': 0.30}
         }
     },
     'NSH/WBC%': {
@@ -229,6 +229,14 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         }
     },
     'LYMP#': {
+        'name': 'Linfocitos (Absoluto)',
+        'unit': 'x10^3/µL',
+        'ranges': {
+            'canine': {'min': 1.0, 'max': 4.8},
+            'feline': {'min': 1.5, 'max': 7.0}
+        }
+    },
+    'LYM#': {
         'name': 'Linfocitos (Absoluto)',
         'unit': 'x10^3/µL',
         'ranges': {
@@ -280,8 +288,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Basófilos (Absoluto)',
         'unit': 'x10^3/µL',
         'ranges': {
-            'canine': None,  # Raro (<0.1)
-            'feline': None
+            'canine': {'min': 0.00, 'max': 0.10},
+            'feline': {'min': 0.00, 'max': 0.10}
         }
     },
     'BAS%': {
@@ -330,8 +338,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Plaquetas Agregadas (Absoluto)',
         'unit': 'x10^3/µL',
         'ranges': {
-            'canine': None, # Ausente/Bajo
-            'feline': None  # Variable in vitro
+            'canine': {'min': 0.00, 'max': 0.15}, # Ausente/Bajo
+            'feline': {'min': 0.00, 'max': 0.15}  # Variable in vitro
         }
     },
     'P-LCR': {
@@ -346,8 +354,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Conteo de Células Grandes',
         'unit': 'x10^3/µL',
         'ranges': {
-            'canine': None, # Bajo
-            'feline': None
+            'canine': {'min': 7.00, 'max': 20.00},
+            'feline': {'min': 7.00, 'max': 20.00}
         }
     },
 
@@ -356,8 +364,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Proteína C Reactiva Canina',
         'unit': 'mg/L',
         'ranges': {
-            'canine': {'min': 0.0, 'max': 10.0},
-            'feline': None
+            'canine': {'min': 2.00, 'max': 8.00},
+            'feline': {'min': 2.00, 'max': 8.00}
         }
     },
     'fSAA': {
@@ -372,8 +380,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Lipasa Pancreática Canina',
         'unit': 'µg/L',
         'ranges': {
-            'canine': {'min': 0.0, 'max': 200.0},
-            'feline': None
+            'canine': {'min': 9.10, 'max': 19.40},
+            'feline': {'min': 9.10, 'max': 19.40}
         }
     },
     'fPL': {
@@ -528,8 +536,8 @@ VETERINARY_STANDARDS: Dict[str, Dict[str, Any]] = {
         'name': 'Oxalato de Calcio Dihidratado',
         'unit': '',
         'ranges': {
-            'canine': None, # Raro
-            'feline': None
+            'canine': {'min': 0.00, 'max': 66.00}, # Bajo
+            'feline': {'min': 0.00, 'max': 66.00}
         }
     },
     'CP#': {

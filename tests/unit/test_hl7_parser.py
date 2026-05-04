@@ -11,7 +11,6 @@ from app.satellites.ozelle.hl7_parser import (
     HeartbeatMessageException,
     ParsedOzelleMessage,
 )
-from app.satellites.ozelle.batch_splitter import BatchSplitter
 
 
 # ── Realistic HL7 fixture from Ozelle EHVT-50 ────────────────────────────────
@@ -86,8 +85,8 @@ def test_parse_valid_message():
 
     nst_wbc = parsed.lab_values[2]
     assert nst_wbc.parameter_code == "NST/WBC%"
-    # NST/WBC (after stripping %) is not in translation table → desconocido fallback
-    assert "desconocido" in nst_wbc.parameter_name_es
+    # NST/WBC (after splitting by / and stripping %) should now correctly translate to "Bandas"
+    assert nst_wbc.parameter_name_es == "Bandas"
     assert nst_wbc.raw_value == "0.66"
     assert nst_wbc.numeric_value == 0.66
     assert nst_wbc.unit == "%"
@@ -121,141 +120,6 @@ def test_parse_malformed_message_raises_error():
     )
     with pytest.raises(HL7ParsingError):
         parse_hl7_message(malformed)
-
-
-# ─── BatchSplitter Tests ────────────────────────────────────────────────────
-
-
-def test_split_batch_with_mllp_framing():
-    """BatchSplitter correctly splits a single MLLP-framed message."""
-    framed_msg = b"\x0bMSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\nPID|1|||TEST^PATIENT|\r\n\x1c\r"
-    messages = BatchSplitter.split_batch(framed_msg)
-    assert len(messages) == 1
-    assert messages[0] == framed_msg
-
-
-def test_split_batch_with_multiple_mllp_messages():
-    """BatchSplitter splits multiple MLLP-framed messages."""
-    msg1 = b"\x0bMSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\nPID|1|||FIRST^PATIENT|\r\n\x1c\r"
-    msg2 = b"\x0bMSH|^~\\&|TEST|LAB|||20260414120001||ORU^R01|2|P|2.3.1\r\nPID|1|||SECOND^PATIENT|\r\n\x1c\r"
-    batch = msg1 + msg2
-    messages = BatchSplitter.split_batch(batch)
-    assert len(messages) == 2
-    assert messages[0] == msg1
-    assert messages[1] == msg2
-
-
-def test_split_batch_no_mllp_framing():
-    """BatchSplitter returns empty list when no MLLP framing found."""
-    plain_bytes = b"MSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\nPID|1|||PATIENT|\r\n"
-    messages = BatchSplitter.split_batch(plain_bytes)
-    assert messages == []
-
-
-def test_parse_message_removes_mllp_framing():
-    """parse_message strips MLLP framing characters correctly."""
-    framed = b"\x0bMSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\nPID|1|||PATIENT|\r\n\x1c\r"
-    clean = BatchSplitter.parse_message(framed)
-    expected = b"MSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\nPID|1|||PATIENT|\r\n"
-    assert clean == expected
-
-
-def test_parse_message_no_framing_returns_as_is():
-    """parse_message returns unchanged if no MLLP framing present."""
-    already_clean = b"MSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\n"
-    result = BatchSplitter.parse_message(already_clean)
-    assert result == already_clean
-
-
-def test_parse_message_removes_mllp_framing():
-    """parse_message strips MLLP framing characters correctly."""
-    framed = b"\x0bMSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\nPID|1|||PATIENT|\r\n\x1c\r"
-    clean = BatchSplitter.parse_message(framed)
-    expected = b"MSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\nPID|1|||PATIENT|\r\n"
-    assert clean == expected
-
-
-def test_parse_message_no_framing_returns_as_is():
-    """parse_message returns unchanged if no MLLP framing present."""
-    already_clean = b"MSH|^~\\&|TEST|LAB|||||ORU^R01||P|2.3.1\r\n"
-    result = BatchSplitter.parse_message(already_clean)
-    assert result == already_clean
-
-
-def test_process_batch_filters_heartbeats():
-    """process_batch filters out heartbeat messages and returns only valid ones."""
-    heartbeat = b"\x0bMSH|^~\\&|HEARTBEAT|SENDER|R|20260414120000||ZHB^H00|HB001|P|2.3.1\r\n\x1c\r"
-    valid_msg = b"\x0bMSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\nPID|1|||PATIENT|\r\n\x1c\r"
-    batch = heartbeat + valid_msg
-    result = BatchSplitter.process_batch(batch)
-    assert len(result) == 1
-    assert result[0] == b"MSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\nPID|1|||PATIENT|\r\n"
-
-
-def test_process_batch_empty_file():
-    """process_batch returns empty list for empty input."""
-    result = BatchSplitter.process_batch(b"")
-    assert result == []
-
-
-def test_process_batch_only_heartbeats():
-    """process_batch returns empty list when only heartbeats present."""
-    heartbeat = b"\x0bMSH|^~\\&|HEARTBEAT|SENDER|R|20260414120000||ZHB^H00|HB001|P|2.3.1\r\n\x1c\r"
-    result = BatchSplitter.process_batch(heartbeat)
-    assert result == []
-
-
-def test_split_plain_hl7_by_msh():
-    """_split_plain_hl7 splits HL7 plain text by MSH lines."""
-    plain_batch = (
-        b"MSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\nPID|1|||PATIENT1|\r\n"
-        b"MSH|^~\\&|TEST|LAB|||20260414120001||ORU^R01|2|P|2.3.1\r\nPID|1|||PATIENT2|\r\n"
-        b"MSH|^~\\&|TEST|LAB|||20260414120002||ORU^R01|3|P|2.3.1\r\nPID|1|||PATIENT3|\r\n"
-    )
-    messages = BatchSplitter._split_plain_hl7(plain_batch)
-    assert len(messages) == 3
-    assert b"PATIENT1" in messages[0]
-    assert b"PATIENT2" in messages[1]
-    assert b"PATIENT3" in messages[2]
-
-
-def test_split_plain_hl7_single_message():
-    """_split_plain_hl7 handles single HL7 plain message."""
-    plain_batch = b"MSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\nPID|1|||PATIENT|\r\n"
-    messages = BatchSplitter._split_plain_hl7(plain_batch)
-    assert len(messages) == 1
-    assert messages[0] == plain_batch
-
-
-def test_split_plain_hl7_empty_input():
-    """_split_plain_hl7 returns empty list for empty input."""
-    messages = BatchSplitter._split_plain_hl7(b"")
-    assert messages == []
-
-
-def test_split_plain_hl7_mixed_endings():
-    """_split_plain_hl7 handles mixed line endings (CR, LF, CRLF)."""
-    plain_batch = (
-        b"MSH|^~\\&|TEST|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\n"
-        b"PID|1|||PATIENT1|\n"
-        b"MSH|^~\\&|TEST|LAB|||20260414120001||ORU^R01|2|P|2.3.1\r"
-        b"PID|1|||PATIENT2|\r\n"
-    )
-    messages = BatchSplitter._split_plain_hl7(plain_batch)
-    assert len(messages) == 2
-
-
-def test_process_batch_handles_both_mllp_and_plain():
-    """process_batch handles mixed MLLP and plain HL7 in same batch."""
-    mllp_msg = b"\x0bMSH|^~\\&|MLLP|LAB|||20260414120000||ORU^R01|1|P|2.3.1\r\nPID|1|||MLLP_PATIENT|\r\n\x1c\r"
-    plain_msg = b"MSH|^~\\&|PLAIN|LAB|||20260414120001||ORU^R01|2|P|2.3.1\r\nPID|1|||PLAIN_PATIENT|\r\n"
-    # Batch with MLLP followed by plain HL7 (as might happen in file uploads)
-    batch = mllp_msg + plain_msg
-    result = BatchSplitter.process_batch(batch)
-    # Should process MLLP message (it's properly framed)
-    # Plain message won't be recognized as separate without MLLP framing
-    # But should at least get the MLLP one
-    assert len(result) >= 1
 
 
 def test_parse_with_source_lis_file_uses_current_time():

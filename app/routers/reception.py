@@ -8,6 +8,7 @@ from app.schemas.reception import RawPatientInput, BaulResult, NormalizedPatient
 from app.models.patient import Patient
 from app.models.test_result import TestResult
 from app.core.reception.service import ReceptionService
+from app.tasks.hl7_processor import get_upload_status
 import uuid
 import json
 from datetime import datetime, timezone
@@ -93,29 +94,73 @@ async def list_patients(
     }
 
 
-@router.post("/upload", status_code=200)
+@router.post("/upload", status_code=202)
 async def handle_upload(
     file: UploadFile = File(...), 
     file_type: str = Form(...),
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session) # Keeping for now, might be removed later if not needed
 ):
     """
     Handle file uploads for Ozelle, Fujifilm, and JSON patient data.
     """
     try:
         file_content = await file.read()
-        await _service.handle_uploaded_file(file_content, file_type, session)
+        upload_id = await _service.handle_uploaded_file(file_content, file_type, session)
         
-        # Return response with HX-Trigger to refresh the grid
-        return Response(
-            status_code=200, 
-            headers={"HX-Trigger": "refreshReceptionGrid"}
-        )
+        # Return HTMX response that sets up polling
+        html = f'''
+        <div id="upload-status" 
+             hx-get="/reception/upload/{upload_id}/status"
+             hx-trigger="every 2s"
+             hx-swap="outerHTML">
+          ⏳ Procesando archivo...
+        </div>
+        '''
+        return HTMLResponse(content=html, status_code=202)
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logfire.error(f"Error processing uploaded file: {e}")
+        # Make sure to set error status in Redis if this happens before it gets to the actor
+        # Although handle_uploaded_file should set it if it raises an error itself
         raise HTTPException(status_code=500, detail="Error processing file")
+
+
+@router.get("/upload/{upload_id}/status", response_class=HTMLResponse)
+async def get_upload_status_endpoint(upload_id: str, request: Request):
+    """
+    Pollable endpoint to get the status of an HL7 file upload.
+    """
+    status = get_upload_status(upload_id) # Use the helper function
+
+    if status is None:
+        # Not found — show error. This could happen if Redis key expired or upload_id was invalid.
+        return HTMLResponse('<div class="upload-error" id="upload-status">❌ Estado no encontrado (o expirado)</div>')
+    
+    if status == "processing":
+        # Still processing — keep polling
+        return HTMLResponse(f'''
+        <div id="upload-status"
+             hx-get="/reception/upload/{upload_id}/status"
+             hx-trigger="every 2s"
+             hx-swap="outerHTML">
+          ⏳ Procesando archivo...
+        </div>
+        ''')
+    
+    if status.startswith("complete:"):
+        count = status.split(":")[1]
+        # Trigger waiting room refresh + show success
+        return HTMLResponse(
+            f'<div class="upload-success" id="upload-status">✅ {count} paciente(s) cargado(s)</div>',
+            headers={"HX-Trigger": "refreshReceptionGrid"}
+        )
+    
+    if status.startswith("error:"):
+        msg = status.split(":", 1)[1]
+        return HTMLResponse(f'<div class="upload-error" id="upload-status">❌ Error: {msg}</div>')
+
 
 
 @router.post("/reception/procesar/{test_result_id}")

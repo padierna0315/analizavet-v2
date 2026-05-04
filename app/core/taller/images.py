@@ -45,6 +45,9 @@ IMAGE_PARAMETER_TRANSLATION = {
     "P-LCR": "Plaquetas_Critica",
     "HDW-CV": "Ancho_Distribucion_Plaquetas",
     "HDW-SD": "Desviacion_Ancho_Plaquetas",
+    "MPV": "Volumen_Plaquetario_Medio",
+    "PDW": "Ancho_Distribucion_Plaquetas",
+    "PCT": "Plaquetocrito",
     # Distribuciones combinadas (confirmadas en log real)
     "RBC_PLT": "Distribucion_RBC_PLT",
     # Hematología — Códigos adicionales del log (confirmados en log real)
@@ -113,8 +116,9 @@ def _translate_base_code(base_code: str) -> str:
     """Translate image base code to Spanish name.
     Falls back to lowercase code with warning if not found.
     """
-    if base_code in IMAGE_PARAMETER_TRANSLATION:
-        return IMAGE_PARAMETER_TRANSLATION[base_code]
+    code_key = base_code.split('/')[0] if '/' in base_code else base_code
+    if code_key in IMAGE_PARAMETER_TRANSLATION:
+        return IMAGE_PARAMETER_TRANSLATION[code_key]
     logfire.warning(
         f"Código de imagen desconocido: '{base_code}'. "
         f"Agregar a IMAGE_PARAMETER_TRANSLATION en images.py."

@@ -8,29 +8,57 @@ Decouple la recepción TCP del procesamiento pesado del Core.
 import dramatiq
 import logfire
 import anyio
+import redis
+import re
+import uuid
 
+from sqlmodel import Session, create_engine
 from app.database import AsyncSessionLocal
 from app.schemas.reception import RawPatientInput, PatientSource
 from app.schemas.taller import EnrichRequest, ImageUploadRequest
 from app.satellites.ozelle.hl7_parser import parse_hl7_message, HL7ParsingError, HeartbeatMessageException, ParsedOzelleMessage
-from app.core.reception.service import ReceptionService
-from app.core.taller.service import TallerService
-from app.satellites.ozelle.batch_splitter import BatchSplitter
+# from app.core.reception.service import ReceptionService # Moved to inside function
+from app.core.taller.service import TallerService # Moved to inside function
+from app.config import settings # Import settings
+
 
 
 # ── Module-level service instances (shared across actor invocations) ────────────
 
 
-def _reception_service() -> ReceptionService:
+def _reception_service() -> "ReceptionService":
+    from app.core.reception.service import ReceptionService # Local import to break circular dependency
     return ReceptionService()
 
 
-def _taller_service() -> TallerService:
+def _taller_service() -> "TallerService":
+    from app.core.taller.service import TallerService # Local import to break circular dependency
     return TallerService()
+
+# Synchronous engine for Dramatiq actor's DB operations
+sync_engine = create_engine(settings.DATABASE_URL, echo=False)
 
 
 # ── Dramatiq Actor ─────────────────────────────────────────────────────────────
 
+def set_upload_status(upload_id: str, status: str, count: int = 0) -> None:
+    """Write upload status to Redis. Status: 'processing', 'complete:{n}', 'error:{msg}'"""
+    r = redis.from_url(settings.REDIS_URL)
+    if status == "processing":
+        r.setex(f"upload:{upload_id}:status", 300, status)  # 5 minutes TTL
+    elif status.startswith("complete:"):
+        r.setex(f"upload:{upload_id}:status", 300, f"{status}{count}")  # 5 minutes TTL
+    elif status.startswith("error:"):
+        r.setex(f"upload:{upload_id}:status", 300, status)  # 5 minutes TTL
+    logfire.info(f"Upload status for {upload_id} set to {status}")
+
+def get_upload_status(upload_id: str) -> str | None:
+    """Read upload status from Redis. Returns None if not found."""
+    r = redis.from_url(settings.REDIS_URL)
+    status = r.get(f"upload:{upload_id}:status")
+    if status:
+        return status.decode('utf-8')
+    return None
 
 @dramatiq.actor(max_retries=3, time_limit=60000)
 def process_hl7_message(raw_hl7: str, source: str):
@@ -151,47 +179,101 @@ async def _async_process_pipeline(parsed_msg: ParsedOzelleMessage, source: str):
             raise
 
 
-# ── Batch Processing Actor ─────────────────────────────────────────────────────
+def split_hl7_batch(batch_content: str) -> list[str]:
+    # Find all occurrences of "MSH|"
+    starts = [m.start() for m in re.finditer(r'MSH\|', batch_content)]
+    
+    messages = []
+    for i in range(len(starts)):
+        start_index = starts[i]
+        # End of message is either the start of the next MSH or end of file
+        end_index = starts[i+1] if i+1 < len(starts) else len(batch_content)
+        
+        message = batch_content[start_index:end_index].strip()
+        if message: # Only add non-empty messages
+            messages.append(message)
+    return messages
 
-
-@dramatiq.actor(max_retries=3, time_limit=120000)
-def process_uploaded_batch(file_content: str):
-    """
-    Dramatiq actor to process an uploaded HL7 batch file.
-    This actor handles the complete batch processing pipeline:
-    1. Split the batch file into individual messages
-    2. Filter out heartbeat messages
-    3. Process each valid message through the existing pipeline
-    """
-    logfire.info("Procesando archivo HL7 batch en background")
+@dramatiq.actor(max_retries=3, time_limit=300000)
+def process_uploaded_batch(file_content: str, file_type: str, upload_id: str) -> None:
+    """Process a batch HL7 file upload. Splits multi-message content, filters heartbeats,
+    parses each message, and saves patients to DB."""
+    
+    logfire.info(f"Starting batch upload processing for upload_id: {upload_id}, file_type: {file_type}")
+    
+    parsed_message_count = 0
+    
     try:
-        # Convert string back to bytes for processing
-        file_bytes = file_content.encode('utf-8')
-        logfire.info(f"Batch file size: {len(file_bytes)} bytes")
+        messages = split_hl7_batch(file_content)
         
-        # Split the batch file into individual messages
-        valid_messages = BatchSplitter.process_batch(file_bytes)
-        logfire.info(f"Archivo dividido en {len(valid_messages)} mensajes válidos")
+        logfire.info(f"Split batch file into {len(messages)} potential HL7 messages.")
         
-        if len(valid_messages) == 0:
-            logfire.warning("No se encontraron mensajes válidos en el archivo batch")
-            return
-        
-        # Process each message
-        for i, message in enumerate(valid_messages):
+        for i, msg_str in enumerate(messages):
+            if not msg_str:
+                continue
+
             try:
-                # Decode message to string for processing
-                message_str = message.decode('utf-8', errors='ignore')
-                logfire.info(f"Procesando mensaje {i+1}/{len(valid_messages)}: {len(message_str)} chars")
-                
-                # Process the message using the existing actor
-                process_hl7_message.send(message_str, PatientSource.LIS_FILE.value)
+                if file_type == "ozelle":
+                    # Filter heartbeats: skip messages where MSH-9 contains ZHB^H00
+                    # The ozelle parser already raises HeartbeatMessageException
+                    # for heartbeats, so we can catch that.
+                    
+                    # Create own DB session (NOT from request context)
+                    # This is actually handled by _async_process_pipeline, but for the parsing part,
+                    # we still need to catch exceptions.
+                    
+                    # The existing process_hl7_message actor expects a raw HL7 string
+                    # and the source. The source will be Ozelle for this file type.
+                    
+                    # Call parse_hl7_message() from app.satellites.ozelle.hl7_parser
+                    # This parsing happens inside process_hl7_message actor.
+                    # Here we just pass the raw message string.
+                    
+                    # We can't directly call parse_hl7_message here to filter heartbeats
+                    # because it requires a source. It's better to let the process_hl7_message
+                    # actor handle the parsing and HeartbeatMessageException.
+                    
+                    # The instruction says "Filter heartbeats: skip messages where MSH-9 contains ZHB^H00"
+                    # and "Handle HeartbeatMessageException — just skip that message"
+                    # This implies we should parse here to skip heartbeats BEFORE sending to the actor.
+                    
+                    # Let's try to parse it here to filter heartbeats.
+                    # The parse_hl7_message function needs the source.
+                    
+                    # For filtering heartbeats in the batch processor, we need to examine MSH-9
+                    # without fully parsing it.
+                    # A quick regex check for MSH-9 segment for heartbeat.
+                    # MSH|^~\&|...|...|...|...|...|...|ZHB^H00...
+                    if "MSH|" in msg_str and "ZHB^H00" in msg_str.split("|")[8 if len(msg_str.split("|")) > 8 else 0]:
+                        logfire.info(f"Skipping heartbeat message {i+1}/{len(messages)} for upload_id: {upload_id}")
+                        continue
+
+                    # If not a heartbeat, send for processing
+                    process_hl7_message.send(msg_str, PatientSource.LIS_OZELLE.value)
+                    parsed_message_count += 1
+                    
+                elif file_type == "fujifilm":
+                    # Call appropriate fujifilm parser (placeholder for now)
+                    # For now, if fujifilm is selected, it will just send it to the existing fujifilm processor
+                    # which expects a single message.
+                    from app.tasks.fujifilm_processor import process_fujifilm_message
+                    process_fujifilm_message.send(msg_str) # Assuming fujifilm can handle single HL7 message.
+                    parsed_message_count += 1
+                else:
+                    logfire.warning(f"Unsupported file_type '{file_type}' for message {i+1}/{len(messages)} in upload_id: {upload_id}")
+                    continue
             except Exception as e:
-                logfire.error(f"Error procesando mensaje {i+1}: {e}")
-                # Continue with the next message even if one fails
+                logfire.error(f"Error processing individual message {i+1}/{len(messages)} for upload_id: {upload_id}: {e}")
+                # Continue processing other messages in the batch even if one fails
                 continue
                 
-        logfire.info("Procesamiento de archivo HL7 batch completado")
+        set_upload_status(upload_id, "complete:", parsed_message_count)
+        logfire.info(f"Finished batch upload processing for upload_id: {upload_id}. Processed {parsed_message_count} messages.")
+        
     except Exception as e:
-        logfire.error(f"Error fatal procesando archivo HL7 batch: {e}")
-        raise  # Raise to trigger Dramatiq retry
+        logfire.error(f"Critical error during batch upload processing for upload_id: {upload_id}: {e}")
+        set_upload_status(upload_id, f"error:{e}")
+        # Don't re-raise, the status is already set to error.
+
+
+# ── Pipeline ───────────────────────────────────────────────────────────────────

@@ -466,28 +466,29 @@
       <span class="header-subtitle">— Analizavet</span>
     </div>
      <div class="header-actions">
-       <button class="btn-header btn-generate-pdf" type="button" onclick="alert('Funcionalidad de Generar PDF aún no conectada a esta vista.')">
-         📄 Generar PDF
-       </button>
+
        <div style="position: relative;">
         <button class="btn-header btn-upload-lis" onclick="document.getElementById('upload-form-popup').style.display = 'block'">
           ⬆️ Subir Datos
         </button>
         <div id="upload-form-popup" style="display: none; position: absolute; top: 100%; right: 0; background-color: white; border: 1px solid #ccc; padding: 1rem; border-radius: 0.5rem; z-index: 100; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-          <form hx-post="/reception/upload"
+          <form id="upload-form"
+                hx-post="/reception/upload"
                 hx-encoding="multipart/form-data"
-                hx-target="body" 
-                hx-swap="none"
-                hx-on::after-request="this.form.reset(); this.closest('#upload-form-popup').style.display='none'">
+                hx-target="#upload-status-container"
+                hx-swap="innerHTML"
+                hx-indicator="#upload-spinner"
+                hx-on::after-request="document.getElementById('upload-form').reset(); document.getElementById('upload-form-popup').style.display='none'">
             <label for="file_type_select">Tipo de archivo:</label>
             <select name="file_type" id="file_type_select" required>
               <option value="ozelle">Ozelle</option>
               <option value="fujifilm">Fujifilm</option>
               <option value="json">JSON (Bautizo)</option>
             </select>
-            <input type="file" name="file" required onchange="this.form.dispatchEvent(new Event('submit', {bubbles: true}))">
-            <span class="htmx-indicator">⏳</span>
+            <input type="file" name="file" required onchange="htmx.trigger('#upload-form', 'submit')">
+            <span id="upload-spinner" class="htmx-indicator">⏳</span>
           </form>
+          <div id="upload-status-container"></div>
         </div>
        </div>
      </div>
