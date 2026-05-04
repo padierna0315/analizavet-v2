@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.routers import health
+from app.routers.mllp import router as mllp_router
 from app.routers.reception import router as reception_router
 from app.routers.taller import router as taller_router
 from app.routers.reports import router as reports_router
@@ -29,12 +30,13 @@ if settings.LOGFIRE_ENABLED:
 
 # Global list of active adapters
 _adapters = []
+_mllp_running: bool = False # estado actual de los servidores MLLP
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _adapters
+    global _adapters, _mllp_running
     setup_logging(settings.LOG_LEVEL)
     logfire.info("Iniciando servicios...")
 
@@ -45,7 +47,6 @@ async def lifespan(app: FastAPI):
     # Initialize adapters
     # Only start adapters if not in testing environment and MLLP is enabled
     if os.environ.get("TESTING") != "True" and settings.MLLP_ENABLED:
-    if os.environ.get("TESTING") != "True":
         ozelle_port = getattr(settings, "OZELLE_PORT", 6000)
         fujifilm_port = getattr(settings, "FUJIFILM_PORT", 6001)
 
@@ -58,9 +59,11 @@ async def lifespan(app: FastAPI):
         for adapter in _adapters:
             logfire.info(f"Iniciando adaptador: {adapter.get_source_name()}")
             await adapter.start()
+        _mllp_running = True
     else:
-        logfire.info("Entorno de testing detectado. Saltando inicialización de adaptadores externos.")
+        logfire.info("Entorno de testing detectado o MLLP_ENABLED es False. Saltando inicialización de adaptadores externos.")
         _adapters = [] # Ensure _adapters is an empty list in testing mode
+        _mllp_running = False
 
     yield
 
@@ -85,6 +88,7 @@ async def root_redirect():
     return RedirectResponse(url="/taller/", status_code=302)
 
 app.include_router(health.router)
+app.include_router(mllp_router)
 app.include_router(reception_router)
 app.include_router(taller_router)
 app.include_router(reports_router)

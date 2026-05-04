@@ -17,6 +17,14 @@
         </div>
         <div class="navbar-info">
             {% block navbar_info %}{% endblock %}
+            <div
+                hx-get="/api/mllp/button"
+                hx-trigger="load"
+                hx-swap="outerHTML"
+            >
+                <!-- Initial loading state or placeholder -->
+                <button class="mllp-button mllp-button-loading">Cargando estado...</button>
+            </div>
         </div>
     </nav>
 <main class="main-content">
