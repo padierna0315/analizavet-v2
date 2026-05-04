@@ -12,7 +12,6 @@ _taller_service = TallerService()
 
 
 def _sanitize_filename(text: str) -> str:
-    """Make string safe for HTTP Content-Disposition filename."""
     nfd = unicodedata.normalize("NFD", text)
     ascii_text = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
     return ascii_text.replace(" ", "_")
@@ -23,28 +22,19 @@ async def download_pdf(
     result_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """Generate and download the final clinical PDF report."""
-
-    # Get basic data to format the filename
     data = await _taller_service.get_test_result_full(result_id, session)
     if not data:
         raise HTTPException(status_code=404, detail="Resultado no encontrado")
 
-    patient_name = _sanitize_filename(data["patient"]["name"])
-    test_type = _sanitize_filename(data["test_result"]["test_type"])
+    patient_name = _sanitize_filename(data["patient"]["name"] or "")
+    test_type = _sanitize_filename(data["test_result"]["test_type"] or "")
     date_str = data["test_result"]["received_at"][:10].replace("-", "")
-
     filename = f"{patient_name}_{date_str}_{test_type}.pdf"
 
-    try:
-        pdf_bytes = await _report_service.generate_pdf(result_id, session)
-        if not pdf_bytes:
-            raise HTTPException(status_code=404, detail="No se pudo procesar el reporte")
+    pdf_bytes = _report_service.generate_pdf_sync(data)
 
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )

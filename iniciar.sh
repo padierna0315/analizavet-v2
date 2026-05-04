@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+MLLP_ENABLED="${MLLP_ENABLED:-false}"
+
 # Si no hay terminal (doble clic en GUI), abrir en Konsole
 if [ ! -t 0 ]; then
     if command -v konsole &> /dev/null; then
@@ -50,42 +52,48 @@ if [ ! -d "images" ]; then
 fi
 
 # 7. Verificar Redis para Dramatiq
-echo "🔍 Verificando Redis..."
-if ! redis-cli ping &> /dev/null; then
-    echo "⚠️  Redis no está corriendo. Iniciando Redis..."
-    redis-server --daemonize yes
-    sleep 2
-    if redis-cli ping | grep -q "PONG"; then
-        echo "✅ Redis iniciado correctamente"
+if [ "$MLLP_ENABLED" = "true" ]; then
+    echo "🔍 Verificando Redis..."
+    if ! redis-cli ping &> /dev/null; then
+        echo "⚠️  Redis no está corriendo. Iniciando Redis..."
+        redis-server --daemonize yes
+        sleep 2
+        if redis-cli ping | grep -q "PONG"; then
+            echo "✅ Redis iniciado correctamente"
+        else
+            echo "❌ No se pudo iniciar Redis. Instálalo con: sudo apt install redis-server"
+            exit 1
+        fi
     else
-        echo "❌ No se pudo iniciar Redis. Instálalo con: sudo apt install redis-server"
-        exit 1
+        echo "✅ Redis ya está corriendo"
     fi
-else
-    echo "✅ Redis ya está corriendo"
 fi
 
 # 8. Limpiar puertos 9191/9200 (Prometheus middleware) antes de iniciar worker
-echo "Limpiando puertos 9191/9200..."
-lsof -ti:9191 -ti:9200 2>/dev/null | xargs -r kill 2>/dev/null || fuser -k 9191/tcp 9200/tcp 2>/dev/null || true
+if [ "$MLLP_ENABLED" = "true" ]; then
+    echo "Limpiando puertos 9191/9200..."
+    lsof -ti:9191 -ti:9200 2>/dev/null | xargs -r kill 2>/dev/null || fuser -k 9191/tcp 9200/tcp 2>/dev/null || true
+fi
 
 # 9. Iniciar Dramatiq worker en segundo plano
-echo "🎭 Iniciando worker de Dramatiq..."
-uv run dramatiq app.tasks.broker:redis_broker --threads 2 &
-DRAMATIQ_PID=$!
-sleep 3
+if [ "$MLLP_ENABLED" = "true" ]; then
+    echo "🎭 Iniciando worker de Dramatiq..."
+    uv run dramatiq app.tasks.broker:broker --threads 2 &
+    DRAMATIQ_PID=$!
+    sleep 3
 
-# Verify Dramatiq is running
-if kill -0 $DRAMATIQ_PID 2>/dev/null; then
-    echo "✅ Worker de Dramatiq iniciado (PID: $DRAMATIQ_PID)"
-else
-    echo "❌ Worker de Dramatiq falló al iniciar"
-    exit 1
+    # Verify Dramatiq is running
+    if kill -0 $DRAMATIQ_PID 2>/dev/null; then
+        echo "✅ Worker de Dramatiq iniciado (PID: $DRAMATIQ_PID)"
+    else
+        echo "❌ Worker de Dramatiq falló al iniciar"
+        exit 1
+    fi
 fi
 
 # 9. Iniciar servidor FastAPI
 echo "🌐 Iniciando servidor FastAPI..."
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 SERVER_PID=$!
 sleep 3
 

@@ -19,11 +19,13 @@ import os
 
 
 # Logfire configuration - local mode only (no internet)
-logfire.configure(
-    send_to_logfire=False,  # Modo local — sin conexión a internet
-    service_name="analizavet-v2",
-)
-logfire.instrument_pydantic()  # Captura validaciones de Pydantic
+if settings.LOGFIRE_ENABLED:
+    logfire.configure(
+        send_to_logfire=False,  # Modo local — sin conexión a internet
+        service_name="analizavet-v2",
+    )
+    logfire.instrument_pydantic()  # Captura validaciones de Pydantic
+
 
 # Global list of active adapters
 _adapters = []
@@ -41,7 +43,8 @@ async def lifespan(app: FastAPI):
     await create_db_and_tables()
 
     # Initialize adapters
-    # Only start adapters if not in testing environment
+    # Only start adapters if not in testing environment and MLLP is enabled
+    if os.environ.get("TESTING") != "True" and settings.MLLP_ENABLED:
     if os.environ.get("TESTING") != "True":
         ozelle_port = getattr(settings, "OZELLE_PORT", 6000)
         fujifilm_port = getattr(settings, "FUJIFILM_PORT", 6001)
@@ -73,7 +76,8 @@ async def lifespan(app: FastAPI):
 # ── Application Setup ──────────────────────────────────────────────────────────
 
 app = FastAPI(title="Analizavet V2", version="2.0.0", lifespan=lifespan)
-logfire.instrument_fastapi(app)  # Captura todas las peticiones HTTP
+if settings.LOGFIRE_ENABLED:
+    logfire.instrument_fastapi(app)  # Captura todas las peticiones HTTP
 
 @app.get("/", include_in_schema=False)
 async def root_redirect():

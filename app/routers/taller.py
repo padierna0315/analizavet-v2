@@ -616,11 +616,11 @@ async def load_patient_workspace(
     lab_values = data["lab_values"]
 
     e = html_module.escape
-    p_name = e(patient.get("name", ""))
-    p_species = e(patient.get("species", ""))
-    p_sex = e(patient.get("sex", ""))
-    p_age = e(patient.get("age_display", ""))
-    p_owner = e(patient.get("owner_name", ""))
+    p_name = e(patient.get("name") or "")
+    p_species = e(patient.get("species") or "")
+    p_sex = e(patient.get("sex") or "")
+    p_age = e(patient.get("age_display") or "")
+    p_owner = e(patient.get("owner_name") or "")
 
     # Build lab values rows
     rows_html = ""

@@ -5,6 +5,8 @@ LOG_LEVEL = "INFO"
 OZELLE_PORT = 6000
 FUJIFILM_PORT = 6001
 PDF_THEME = "huellas_lab"
+MLLP_ENABLED = false
+LOGFIRE_ENABLED = false
 
 [development]
 # Inherits from default

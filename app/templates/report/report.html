@@ -66,40 +66,7 @@
         </tbody>
     </table>
 
-    {% if lab_values %}
-    <table>
-        <thead>
-            <tr>
-                <!-- Dark blue section header spanning all columns -->
-                <td colspan="3" class="section-header">{{ test_result.test_type | upper }}</td>
-            </tr>
-            <tr>
-                <th>Examen</th>
-                <th class="col-center">RESULTADO</th>
-                <th class="col-right">REFERENCIA</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for lv in lab_values %}
-            <tr class="row-divider">
-                <td>{{ lv.parameter_name_es }}</td>
 
-                <td class="col-center">
-                    {% if lv.flag == 'ALTO' %}
-                        <span class="flag-alto">{{ lv.raw_value }} &uarr;</span>
-                    {% elif lv.flag == 'BAJO' %}
-                        <span class="flag-bajo">{{ lv.raw_value }} &darr;</span>
-                    {% else %}
-                        <span class="flag-normal">{{ lv.raw_value }}</span>
-                    {% endif %}
-                </td>
-
-                <td class="col-right">{{ lv.reference_range }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endif %}
 
     {% if interpretations %}
     <div class="interpretations-section">
