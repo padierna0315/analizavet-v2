@@ -4,9 +4,9 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 import logfire
 
-from app.models.test_result import TestResult
-from app.models.lab_value import LabValue
-from app.models.patient_image import PatientImage
+from app.shared.models.test_result import TestResult
+from app.shared.models.lab_value import LabValue
+from app.shared.models.patient_image import PatientImage
 from app.models.patient import Patient
 from app.schemas.taller import (
     FlagBatchRequest, FlagBatchResult,

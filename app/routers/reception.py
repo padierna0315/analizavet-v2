@@ -6,7 +6,7 @@ from sqlmodel import select, func
 from app.database import get_session
 from app.schemas.reception import RawPatientInput, BaulResult, NormalizedPatient
 from app.models.patient import Patient
-from app.models.test_result import TestResult
+from app.shared.models.test_result import TestResult
 from app.core.reception.service import ReceptionService
 from app.tasks.hl7_processor import get_upload_status
 import uuid

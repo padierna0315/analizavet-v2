@@ -7,7 +7,7 @@ from sqlalchemy.types import TypeDecorator
 from sqlalchemy.ext.mutable import MutableList
 
 if TYPE_CHECKING:
-    from app.models.test_result import TestResult
+    from app.shared.models.test_result import TestResult
 
 
 class _JsonListType(TypeDecorator):

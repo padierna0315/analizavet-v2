@@ -10,8 +10,8 @@ import logfire
 
 from app.shared.models.test_result import TestResult
 from app.shared.models.lab_value import LabValue
-from app.core.algorithms.registry import AlgorithmRegistry, AlgorithmResult, AlgorithmError
-from app.core.algorithms.interpretations import INTERPRETATIONS
+from app.shared.algorithms.registry import AlgorithmRegistry, AlgorithmResult, AlgorithmError
+from app.shared.algorithms.interpretations import INTERPRETATIONS
 
 
 class ClinicalAlgorithmsEngine:

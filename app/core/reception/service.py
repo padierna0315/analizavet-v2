@@ -104,7 +104,7 @@ class ReceptionService:
         
         Returns patients with waiting_room_status = 'active' formatted for display.
         """
-        from app.models.test_result import TestResult
+        from app.shared.models.test_result import TestResult
         query = select(Patient).where(Patient.waiting_room_status == "active")
         query = query.order_by(Patient.updated_at.desc())
         

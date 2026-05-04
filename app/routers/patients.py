@@ -6,7 +6,7 @@ from sqlmodel import select, func
 
 from app.database import get_session
 from app.models.patient import Patient
-from app.models.test_result import TestResult
+from app.shared.models.test_result import TestResult
 
 router = APIRouter(prefix="/patients", tags=["UI Pacientes"])
 _patients_env = jinja2.Environment(

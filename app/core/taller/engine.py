@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 import logfire
 
-from app.models.test_result import TestResult
-from app.models.lab_value import LabValue
+from app.shared.models.test_result import TestResult
+from app.shared.models.lab_value import LabValue
 from app.core.taller.flagging import ClinicalFlaggingService
 from app.schemas.taller import FlagBatchRequest, FlagBatchResult, RawLabValueInput
 from app.schemas.flagging import FlagResult

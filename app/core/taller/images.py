@@ -8,8 +8,8 @@ import logfire
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.models.patient_image import PatientImage
-from app.models.test_result import TestResult
+from app.shared.models.patient_image import PatientImage
+from app.shared.models.test_result import TestResult
 from app.schemas.taller import ImageUploadRequest, ImageUploadResult
 from app.config import settings
 from app.core.taller.triage import seleccionar_mejores_imagenes

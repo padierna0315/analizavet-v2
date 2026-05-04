@@ -7,16 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_session
-from app.models.patient_image import PatientImage
-from app.models.test_result import TestResult
+from app.shared.models.patient_image import PatientImage
+from app.shared.models.test_result import TestResult
 from app.models.patient import Patient
 from app.schemas.taller import (
     EnrichRequest, FlagBatchResult, FlagBatchRequest, ImageUploadRequest,
     ImageUploadResult, RawLabValueInput,
 )
 from app.core.taller.service import TallerService
-from app.core.algorithms.engine import ClinicalAlgorithmsEngine
-from app.core.algorithms.interpretations import INTERPRETATIONS
+from app.shared.algorithms.engine import ClinicalAlgorithmsEngine
+from app.shared.algorithms.interpretations import INTERPRETATIONS
 
 router = APIRouter(prefix="/taller", tags=["Taller"])
 _service = TallerService()

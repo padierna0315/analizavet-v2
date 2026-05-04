@@ -11,8 +11,8 @@ Santiago's research-powered formulas:
   - Calcio Corregido por Albúmina
 """
 from app.shared.models.lab_value import LabValue
-from app.core.algorithms.unit_validation import get_validated_value
-from app.core.algorithms.interpretations import INTERPRETATIONS
+from app.shared.algorithms.unit_validation import get_validated_value
+from app.shared.algorithms.interpretations import INTERPRETATIONS
 from dataclasses import dataclass
 
 

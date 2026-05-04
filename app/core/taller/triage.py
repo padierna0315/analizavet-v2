@@ -10,7 +10,7 @@ We pre-select the best ones:
 
 User can override via HTMX toggle.
 """
-from app.models.patient_image import PatientImage
+from app.shared.models.patient_image import PatientImage
 
 
 def seleccionar_mejores_imagenes(images: list[PatientImage]) -> list[PatientImage]:
