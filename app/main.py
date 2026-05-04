@@ -5,8 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from app.routers import health
-from app.routers.mllp import router as mllp_router
+from app.domains.health.router import router as health_router
+from app.domains.mllp.router import router as mllp_router
 from app.domains.reception.router import router as reception_router
 from app.domains.taller.router import router as taller_router
 from app.domains.reports.router import router as reports_router
@@ -84,7 +84,7 @@ async def root_redirect():
     """Redirigir la raíz al Taller Interactivo (Historia Clínica)."""
     return RedirectResponse(url="/taller/", status_code=302)
 
-app.include_router(health.router)
+app.include_router(health_router)
 app.include_router(mllp_router)
 app.include_router(reception_router)
 app.include_router(taller_router)
@@ -99,9 +99,9 @@ templates = Jinja2Templates(directory="app/templates")
 @app.get("/api/adapters/status", response_class=HTMLResponse)
 async def get_adapters_status():
     """Return HTML status cards for all LIS adapters."""
-    from app.main import _adapters
+    from app.mllp_state import adapters
     html_cards = ""
-    for adapter in _adapters:
+    for adapter in adapters:
         name = adapter.get_source_name()
         is_running = adapter.is_running()
         status_class = "active" if is_running else "inactive"

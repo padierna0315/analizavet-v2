@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 from app.config import settings
-from app.core.models.patient import Patient, TestResult, LabValue, PatientImage # Import all models to populate SQLModel.metadata
+from app.shared.models.patient import Patient, TestResult, LabValue, PatientImage # Import all models to populate SQLModel.metadata
 
 DATABASE_URL = settings.DATABASE_URL
 engine = create_async_engine(DATABASE_URL, echo=True)

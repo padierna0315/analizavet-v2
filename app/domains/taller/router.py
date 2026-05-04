@@ -36,10 +36,10 @@ async def taller_dashboard(
     Shows adapter status, reception queue, and quick actions.
     """
     # Get adapter status from the main app
-    from app.main import _adapters
+    from app import mllp_state
 
     adapters = []
-    for adapter in _adapters:
+    for adapter in mllp_state.adapters:
         adapters.append({
             "name": adapter.get_source_name(),
             "is_running": adapter.is_running(),

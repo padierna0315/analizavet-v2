@@ -5,7 +5,7 @@ Este módulo proporciona funciones para generar fragmentos HTML de notificacione
 que se actualizan vía HTMX Out-of-Band (OOB) swap. CERO JavaScript.
 
 Uso típico:
-    from app.core.taller.notifications import notify_success, notify_error, notify_processing
+    from app.domains.taller.notifications import notify_success, notify_error, notify_processing
 
     # En un endpoint que retorna HTMLResponse con OOB
     return HTMLResponse(
