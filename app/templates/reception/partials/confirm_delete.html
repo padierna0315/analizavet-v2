@@ -1,19 +1,19 @@
-<div class="confirmation-dialog">
+<div class="confirmation-dialog" style="border: 1px solid red; padding: 1em; margin: 1em;">
     <p>¿Estás seguro de que quieres eliminar a este paciente?</p>
-    <div class="dialog-buttons">
-        <button 
-            hx-post="/reception/patient/{{ patient_id }}/delete" 
-            hx-target="#patient-{{ patient_id }}-container"
-            hx-swap="outerHTML"
-            class="btn btn-danger">
-            Confirmar
-        </button>
-        <button 
-            hx-get="" 
-            hx-target="#patient-{{ patient_id }}-container"
-            hx-swap="innerHTML"
-            class="btn btn-secondary">
-            Cancelar
-        </button>
-    </div>
+    <button
+        hx-delete="/reception/patient/{{ patient_id }}"
+        hx-target="closest .patient-card"
+        hx-swap="outerHTML"
+        class="btn btn-danger"
+    >
+        Confirmar
+    </button>
+    <button
+        hx-get="/reception/patient-card/{{ patient_id }}"
+        hx-target="closest .confirmation-dialog"
+        hx-swap="outerHTML"
+        class="btn btn-secondary"
+    >
+        Cancelar
+    </button>
 </div>

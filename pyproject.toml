@@ -27,7 +27,7 @@ dependencies = [
     "dramatiq[redis]==1.15.0",
     "redis>=5.0.0",
     # PDF Generation
-    "weasyprint==60.1",
+    "weasyprint==68.1",
     # Jinja2 Templates
     "jinja2==3.1.2",
     # Utilities
@@ -81,3 +81,6 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 check_untyped_defs = true
+
+[tool.setuptools]
+packages = ["app"]

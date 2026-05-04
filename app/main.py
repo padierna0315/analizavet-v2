@@ -15,6 +15,7 @@ from app.config import settings
 from app.satellites.ozelle import OzelleAdapter
 from app.satellites.fujifilm import FujifilmAdapter
 from app.database import create_db_and_tables
+import os
 
 
 # Logfire configuration - local mode only (no internet)
@@ -40,18 +41,23 @@ async def lifespan(app: FastAPI):
     await create_db_and_tables()
 
     # Initialize adapters
-    ozelle_port = getattr(settings, "OZELLE_PORT", 6000)
-    fujifilm_port = getattr(settings, "FUJIFILM_PORT", 6001)
+    # Only start adapters if not in testing environment
+    if os.environ.get("TESTING") != "True":
+        ozelle_port = getattr(settings, "OZELLE_PORT", 6000)
+        fujifilm_port = getattr(settings, "FUJIFILM_PORT", 6001)
 
-    _adapters = [
-        OzelleAdapter(port=ozelle_port),
-        FujifilmAdapter(port=fujifilm_port),
-    ]
+        _adapters = [
+            OzelleAdapter(port=ozelle_port),
+            FujifilmAdapter(port=fujifilm_port),
+        ]
 
-    # Start all adapters
-    for adapter in _adapters:
-        logfire.info(f"Iniciando adaptador: {adapter.get_source_name()}")
-        await adapter.start()
+        # Start all adapters
+        for adapter in _adapters:
+            logfire.info(f"Iniciando adaptador: {adapter.get_source_name()}")
+            await adapter.start()
+    else:
+        logfire.info("Entorno de testing detectado. Saltando inicialización de adaptadores externos.")
+        _adapters = [] # Ensure _adapters is an empty list in testing mode
 
     yield
 

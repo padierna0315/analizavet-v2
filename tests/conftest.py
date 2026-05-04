@@ -4,6 +4,7 @@ import tempfile
 os.environ.setdefault("ANALIZAVET_ENV", "default")
 os.environ.setdefault("ANALIZAVET_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ANALIZAVET_IMAGES_DIR", tempfile.mkdtemp())
+os.environ.setdefault("TESTING", "True")
 
 import dramatiq
 from dramatiq.brokers.stub import StubBroker
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import get_session
+from app.satellites.ozelle.mllp_server import OzelleMLLPServer
 
 
 # ── Dramatiq Stub Broker fixture (exposes the broker for tests) ────────────────
@@ -34,9 +36,9 @@ def stub_broker():
 
 @pytest.fixture(autouse=True)
 def clear_stub_broker_queues():
-    """Clear stub broker queues between tests."""
+    """Flush stub broker queues between tests (preserves queue declarations)."""
     yield
-    _test_stub_broker.queues.clear()
+    _test_stub_broker.flush_all()
 
 
 # ── Shared in-memory engine (session scope) ────────────────────────────────────
@@ -87,3 +89,19 @@ def client():
 def cleanup_client():
     yield
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(scope="session")
+async def ozelle_mllp_server_fixture():
+    server = OzelleMLLPServer(port=0)  # Use port 0 for dynamic port assignment
+    await server.start()
+    yield server
+    await server.stop()
+
+
+@pytest_asyncio.fixture
+async def session():
+    """Provide a direct AsyncSession for integration tests that need DB access."""
+    maker = sessionmaker(_get_engine(), class_=AsyncSession, expire_on_commit=False)
+    async with maker() as sess:
+        yield sess

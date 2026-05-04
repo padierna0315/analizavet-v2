@@ -71,7 +71,7 @@ async def test_receive_existing_patient_updates_demographic_data():
         source=PatientSource.LIS_OZELLE.value,
         normalized_name="firulais",
         normalized_owner="juan perez",
-        sources_received=json.dumps([PatientSource.LIS_OZELLE.value])
+        sources_received=[PatientSource.LIS_OZELLE.value]
     )
     
     # Mock the _find_existing method to return our existing patient
@@ -103,7 +103,7 @@ async def test_receive_existing_patient_updates_demographic_data():
         assert existing_patient.age_display == "5 años"  # Updated from JSON
         
         # Verify sources_received was updated to include both sources
-        sources_received = json.loads(existing_patient.sources_received)
+        sources_received = existing_patient.sources_received
         assert PatientSource.LIS_OZELLE.value in sources_received
         assert PatientSource.MANUAL.value in sources_received
         
@@ -133,7 +133,7 @@ async def test_receive_existing_patient_ozelle_data_preserved():
         source=PatientSource.LIS_OZELLE.value,
         normalized_name="firulais",
         normalized_owner="juan perez",
-        sources_received=json.dumps([PatientSource.LIS_OZELLE.value])
+        sources_received=[PatientSource.LIS_OZELLE.value]
     )
     
     # Mock the _find_existing method to return our existing patient
@@ -179,7 +179,7 @@ async def test_receive_same_source_twice_does_not_duplicate_sources():
         source=PatientSource.LIS_OZELLE.value,
         normalized_name="firulais",
         normalized_owner="juan perez",
-        sources_received=json.dumps([PatientSource.LIS_OZELLE.value])
+        sources_received=[PatientSource.LIS_OZELLE.value]
     )
     
     # Mock the _find_existing method to return our existing patient
@@ -201,6 +201,6 @@ async def test_receive_same_source_twice_does_not_duplicate_sources():
         assert result.patient_id == 1
         
         # Verify sources_received still only contains one entry for LIS_OZELLE
-        sources_received = json.loads(existing_patient.sources_received)
+        sources_received = existing_patient.sources_received
         assert sources_received.count(PatientSource.LIS_OZELLE.value) == 1
         assert len(sources_received) == 1

@@ -995,3 +995,10 @@ LEGACY_HEMOGRAM_MAPPING: Dict[str, str] = {
     'EOS#': 'eosinofilos',
     'BAS#': 'basofilos',
 }
+
+# Set of known chemistry codes for validation
+CHEMISTRY_CODES = {
+    'ALP', 'ALT', 'AST', 'GGT', 'CPK', 'v-LIP', 'v-AMY', 'LDH', # Enzymes
+    'BUN', 'CRE', 'GLU', 'IP', 'Ca', 'TP', 'ALB', 'TCHO', 'TG', 'TBIL', 'NH3', # Metabolic / Renal
+    'Na', 'K', 'Cl' # Electrolytes
+}

@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from app.schemas.reception import RawPatientInput, BaulResult
 from app.core.reception.normalizer import parse_patient_string
@@ -6,6 +8,7 @@ from app.core.reception.baul import BaulService
 from app.models.patient import Patient
 import json
 import logfire
+
 
 
 class ReceptionService:
@@ -37,29 +40,20 @@ class ReceptionService:
         )
         
         if existing_patient:
-            # Patient exists - implement merge logic per spec
+            # Patient exists - implement merge logic
             logfire.info(
                 f"Paciente existente encontrado: {normalized.name} ({normalized.species}) "
                 f"- Tutor: {normalized.owner_name} [id={existing_patient.id}]"
             )
             
-            # Parse sources_received if it exists
-            sources_received = []
-            if existing_patient.sources_received:
-                try:
-                    sources_received = json.loads(existing_patient.sources_received)
-                except (json.JSONDecodeError, TypeError):
-                    sources_received = []
-            
-            # Add the new source if not already present
+            # Append new source if not present
             new_source_value = raw_input.source.value
-            if new_source_value not in sources_received:
-                sources_received.append(new_source_value)
-                existing_patient.sources_received = json.dumps(sources_received)
+            if new_source_value not in existing_patient.sources_received:
+                existing_patient.sources_received.append(new_source_value)
+                # Mark the mutable list as modified for SQLAlchemy to detect the change
+                flag_modified(existing_patient, "sources_received")
             
             # Update demographic fields from new data
-            # Per spec: JSON updates patient name, species, age, owner
-            # Ozelle data (lab values) is SACRED and preserved in TestResult
             existing_patient.name = normalized.name
             existing_patient.species = normalized.species
             existing_patient.sex = normalized.sex
@@ -70,7 +64,6 @@ class ReceptionService:
             existing_patient.age_display = normalized.age_display
             
             # Update timestamp
-            from datetime import datetime, timezone
             existing_patient.updated_at = datetime.now(timezone.utc)
             
             session.add(existing_patient)
@@ -90,6 +83,16 @@ class ReceptionService:
         
         # Create new patient (existing flow)
         result = await self._baul.register(normalized, session)
+        
+        # Manually set the initial source for the new patient
+        newly_created_patient = await session.get(Patient, result.patient_id)
+        if newly_created_patient:
+            newly_created_patient.sources_received.append(raw_input.source.value)
+            flag_modified(newly_created_patient, "sources_received")
+            session.add(newly_created_patient)
+            await session.commit()
+            await session.refresh(newly_created_patient)
+
         return result
 
     async def get_waiting_room_patients(
@@ -108,13 +111,8 @@ class ReceptionService:
         # Format patient data for the waiting room UI
         patients_data = []
         for patient in patients:
-            # Parse sources_received JSON if it exists
-            sources_received = []
-            if patient.sources_received:
-                try:
-                    sources_received = json.loads(patient.sources_received)
-                except (json.JSONDecodeError, TypeError):
-                    sources_received = []
+            # sources_received is now a Python list (TypeDecorator handles deserialization)
+            sources_received = list(patient.sources_received or [])
             
             patient_data = {
                 "id": patient.id,
@@ -136,3 +134,104 @@ class ReceptionService:
             patients_data.append(patient_data)
         
         return patients_data
+
+    async def delete_patient_from_waiting_room(
+        self, patient_id: int, session: AsyncSession
+    ) -> bool:
+        """
+        Deletes a patient record from the database.
+
+        Returns True if the patient was found and deleted, False otherwise.
+        """
+        logfire.info(f"Attempting to delete patient with id={patient_id}")
+        
+        # Find the patient by ID
+        patient = await session.get(Patient, patient_id)
+        
+        if patient:
+            await session.delete(patient)
+            await session.commit()
+            logfire.info(f"Successfully deleted patient with id={patient_id}")
+            return True
+        else:
+            logfire.warning(f"Patient with id={patient_id} not found for deletion.")
+            return False
+
+    async def handle_uploaded_file(self, file_content: bytes, file_type: str, session: AsyncSession):
+        """
+        Routes uploaded file content to the correct parser/handler based on file_type.
+        """
+        logfire.info(f"Handling uploaded file of type {file_type}")
+        
+        content_str = file_content.decode('utf-8', errors='ignore')
+
+        match file_type:
+            case "ozelle":
+                from app.tasks.hl7_processor import process_hl7_message
+                from app.schemas.reception import PatientSource
+                # Assuming the task can handle the raw string
+                process_hl7_message.send(content_str, PatientSource.LIS_OZELLE.value)
+                logfire.info("Enqueued Ozelle file content for Dramatiq processing.")
+            
+            case "fujifilm":
+                from app.tasks.fujifilm_processor import process_fujifilm_message
+                process_fujifilm_message.send(content_str)
+                logfire.info("Enqueued Fujifilm file content for Dramatiq processing.")
+
+            case "json":
+                try:
+                    data = json.loads(content_str)
+                    if "raw_string" not in data:
+                        raise ValueError("El archivo JSON para bautizar debe contener la clave 'raw_string'.")
+                    
+                    raw_input = RawPatientInput(
+                        raw_string=data["raw_string"],
+                        source='MANUAL',
+                        received_at=datetime.now(timezone.utc)
+                    )
+                    await self.receive(raw_input, session)
+                    logfire.info("Processed JSON baptism file.")
+
+                except json.JSONDecodeError:
+                    raise ValueError("El archivo JSON está malformado.")
+                except Exception as e:
+                    logfire.error(f"Error processing JSON file: {e}")
+                    raise ValueError(f"Error inesperado al procesar el archivo JSON: {e}")
+            
+            case _:
+                raise ValueError(f"Tipo de archivo no soportado: '{file_type}'")
+        
+        return {"status": f"{file_type} file accepted for processing"}
+
+    async def get_single_patient_for_card(
+        self, patient_id: int, session: AsyncSession
+    ) -> dict | None:
+        """Gets a single patient's data formatted for the waiting room card."""
+        patient = await session.get(Patient, patient_id)
+        if not patient:
+            return None
+            
+        # This logic is duplicated from get_waiting_room_patients.
+        # Consider refactoring into a helper function in the future.
+        # sources_received is now a Python list (TypeDecorator handles deserialization)
+        sources_received = list(patient.sources_received or [])
+        
+        patient_data = {
+            "id": patient.id,
+            "name": patient.name,
+            "species": patient.species,
+            "sex": patient.sex,
+            "owner_name": patient.owner_name,
+            "age_display": patient.age_display,
+            "session_code": patient.session_code,
+            "waiting_room_status": patient.waiting_room_status,
+            "sources_received": sources_received,
+            "created_at": patient.created_at.isoformat() if patient.created_at else None,
+            "updated_at": patient.updated_at.isoformat() if patient.updated_at else None,
+            "source": patient.source,
+            "normalized_name": patient.normalized_name,
+            "normalized_owner": patient.normalized_owner
+        }
+        return patient_data
+
+

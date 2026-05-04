@@ -5,13 +5,6 @@ from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient
 
 
-@pytest.fixture
-async def client():
-    """Use the standard test client from conftest."""
-    from tests.conftest import client as test_client
-    async for c in test_client():
-        yield c
-
 
 class TestHealthEndpoint:
     """Tests for the /health endpoint."""

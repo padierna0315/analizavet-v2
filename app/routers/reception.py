@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
@@ -13,8 +13,7 @@ import json
 from datetime import datetime, timezone
 
 import logfire
-# Import Dramatiq actor for batch processing
-from app.tasks.hl7_processor import process_uploaded_batch
+
 
 # Initialize templates
 templates = Jinja2Templates(directory="app/templates")
@@ -94,93 +93,29 @@ async def list_patients(
     }
 
 
-@router.post("/upload")
-async def upload_hl1_batch(
-    file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_session),
-    request: Request = None,
+@router.post("/upload", status_code=200)
+async def handle_upload(
+    file: UploadFile = File(...), 
+    file_type: str = Form(...),
+    session: AsyncSession = Depends(get_session)
 ):
-    """Handle HL7 batch file upload and process it.
-    
-    Accepts a plain text HL7 batch file (typically .txt or .hl7) containing one or
-    more HL7 messages. The file is validated for basic HL7 structure and then
-    processed asynchronously via Dramatiq.
-    
-    Returns 202 Accepted with status details (JSON or HTML fragment for HTMX).
+    """
+    Handle file uploads for Ozelle, Fujifilm, and JSON patient data.
     """
     try:
-        # Read the file content
-        content = await file.read()
+        file_content = await file.read()
+        await _service.handle_uploaded_file(file_content, file_type, session)
         
-        # Basic file type validation: reject common image extensions
-        filename_lower = file.filename.lower()
-        if filename_lower.endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff')):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid file type: {file.filename}. Expected HL7 text file (.txt, .hl7)"
-            )
-        
-        # Convert bytes to string for JSON serialization (Dramatiq)
-        try:
-            content_str = content.decode('utf-8')
-        except UnicodeDecodeError:
-            raise HTTPException(
-                status_code=422,
-                detail="File must be UTF-8 encoded text (HL7 format)"
-            )
-        
-        # Validate not empty
-        if not content_str.strip():
-            raise HTTPException(status_code=422, detail="HL7 file is empty")
-        
-        # Validate contains MSH segment at start of a line (basic HL7 format check)
-        # Look for MSH| at the beginning of any line (allowing leading whitespace)
-        lines = content_str.splitlines()
-        has_msh = any(line.lstrip().startswith('MSH|') for line in lines)
-        if not has_msh:
-            raise HTTPException(
-                status_code=422,
-                detail="Invalid HL7 format: no MSH segment found at start of any line. "
-                       "File must contain HL7 messages."
-            )
-        
-        # Send the file content to the Dramatiq actor for processing
-        process_uploaded_batch.send(content_str)
-        
-        logfire.info(
-            f"Received HL7 batch file: {file.filename} "
-            f"({len(content)} bytes, {len(lines)} lines)"
+        # Return response with HX-Trigger to refresh the grid
+        return Response(
+            status_code=200, 
+            headers={"HX-Trigger": "refreshReceptionGrid"}
         )
-        
-        # Prepare response based on client type
-        is_hx_request = request and request.headers.get('hx-request') == 'true'
-        response_data = {
-            "status": "accepted",
-            "message": f"HL7 batch file '{file.filename}' accepted for processing",
-            "filename": file.filename,
-            "size": len(content),
-            "processing": "async"
-        }
-        
-        if is_hx_request:
-            # For HTMX, return a styled success message
-            return templates.TemplateResponse(
-                "recepcion/upload_success.html",
-                {"request": request, **response_data},
-                status_code=202
-            )
-        else:
-            # For API clients, return JSON
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                status_code=202,
-                content=response_data
-            )
-    except HTTPException:
-        raise  # re-raise HTTPException as is
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logfire.error(f"Error processing HL7 batch file: {e}")
-        raise HTTPException(status_code=500, detail="Error processing HL7 file")
+        logfire.error(f"Error processing uploaded file: {e}")
+        raise HTTPException(status_code=500, detail="Error processing file")
 
 
 @router.post("/reception/procesar/{test_result_id}")
@@ -270,5 +205,40 @@ async def confirm_delete_patient(
         }
     )
 
+
+@router.delete("/patient/{patient_id}", status_code=200)
+async def delete_patient(
+    patient_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a patient from the waiting room."""
+    deleted = await _service.delete_patient_from_waiting_room(patient_id, session)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Patient not found in waiting room")
+    
+    # Return an empty response to clear the element in HTMX
+    return Response(content="", status_code=200)
+
+
+@router.get("/patient-card/{patient_id}", response_class=HTMLResponse)
+async def get_patient_card(
+    patient_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Fetch a single patient card to restore it after cancelling a delete."""
+    # This requires a new service method to get a single patient's formatted data
+    patient_data = await _service.get_single_patient_for_card(patient_id, session)
+    if not patient_data:
+        # If patient was deleted in another window, return an empty response
+        return Response(content="", status_code=200)
+
+    return templates.TemplateResponse(
+        "reception/partials/patient_card.html",
+        {
+            "request": request,
+            "patient": patient_data
+        }
+    )
 
 

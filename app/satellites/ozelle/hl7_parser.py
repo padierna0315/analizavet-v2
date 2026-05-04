@@ -184,24 +184,53 @@ def parse_hl7_message(raw_message: str, source: str | None = None) -> ParsedOzel
 
             # ── Image (ED type) ─────────────────────────────────────────────
             elif value_type == "ED":
-                # Remove Base64^ prefix if present, keep only the actual base64 data
-                if obs_value.startswith("Base64^"):
-                    obs_value = obs_value[7:]  # Remove "Base64^" prefix
-                
-                # Extract only the Base64 portion (from /9j/ to /9k=)
-                # Discard any HL7 trailing characters (like ||||||F)
-                start_idx = obs_value.find("/9j/")
-                end_idx = obs_value.find("/9k=")
-                if start_idx != -1 and end_idx != -1:
-                    # Extract from /9j/ up to AND INCLUDING /9k=
-                    obs_value = obs_value[start_idx:end_idx + 4]  # +4 to include "/9k="
-                
+                # ED fields can arrive in two forms:
+                #   a) "Base64^/9j/4AAQ...data.../9k="   (Ozelle live stream)
+                #   b) "/9j/4AAQ...data..."               (file upload, no prefix)
+                #
+                # The Ozelle machine also appends a "/9k=" end-of-stream marker
+                # and HL7 pipe-fields like "||||||F" inside the value.
+                # We must strip all of that to get clean base64.
+
+                raw_data = obs_value
+
+                # 1. Extract payload after "Base64^" if present (matches v1 behavior)
+                if "Base64^" in raw_data:
+                    raw_data = raw_data.split("Base64^", 1)[1]
+                # If no "Base64^" prefix, use the field value as-is (v1 behavior)
+
+                # 2. Strip Ozelle-specific "/9k=" end-of-stream marker
+                if raw_data.endswith("/9k="):
+                    raw_data = raw_data[:-4]
+
+                # 3. Strip any trailing HL7 pipe-separated fields that leaked in
+                #    e.g. "...data==||||||F" — keep only up to the first lone pipe
+                if "|" in raw_data:
+                    raw_data = raw_data.split("|")[0]
+
+                # 4. Strip leading/trailing whitespace and stray slashes that are
+                #    NOT part of valid base64 (Ozelle sometimes wraps with a "/")
+                #    but preserve the "/9j/" JPEG SOI header which is valid base64.
+                raw_data = raw_data.strip()
+
+                # 5. A single leading "/" that is an Ozelle stream wrapper.
+                #    "//" means Ozelle wrapper "/" + JPEG SOI "/" → remove only the first.
+                #    "/9j/" means JPEG SOI directly → keep it intact.
+                if raw_data.startswith("//"):
+                    raw_data = raw_data[1:]
+
+
+                if not raw_data:
+                    logfire.warning(f"Segmento ED vacío después de limpiar: {obs_value[:50]}...")
+                    continue
+
                 images.append(
                     ImageUploadItem(
                         obs_identifier=obs_id_full,
-                        base64_data=obs_value,
+                        base64_data=raw_data,
                     )
                 )
+
 
     # ── Validation ─────────────────────────────────────────────────────────────
     if not raw_patient_string:

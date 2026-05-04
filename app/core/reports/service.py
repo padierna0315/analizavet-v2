@@ -30,12 +30,20 @@ class ReportService:
         current_dir = Path.cwd().absolute()
         for img in data["images"]:
             # file_path in DB is like "images/Kitty_LauraCepeda/.../Leucocitos_Main.jpg"
-            absolute_path = current_dir / img["file_path"]
-            img["absolute_path"] = str(absolute_path)
+            # Convert to a file URI
+            absolute_path = (current_dir / img["file_path"]).as_uri()
+            img["absolute_path"] = absolute_path
 
-        # 3. Resolve theme path
+        # 3. Resolve theme path and read CSS content
         theme_name = getattr(settings, "PDF_THEME", "huellas_lab")
-        theme_path = current_dir / "app" / "static" / "css" / "themes" / f"{theme_name}.css"
+        theme_filepath = current_dir / "app" / "static" / "css" / "themes" / f"{theme_name}.css"
+        
+        try:
+            with open(theme_filepath, 'r') as f:
+                theme_css_content = f.read()
+        except FileNotFoundError:
+            logfire.error(f"Archivo CSS de tema no encontrado: {theme_filepath}")
+            theme_css_content = "" # Fallback to empty CSS
 
         # 4. Render HTML
         template = self._jinja_env.get_template("report.html")
@@ -45,11 +53,12 @@ class ReportService:
             lab_values=data["lab_values"],
             summary=data["summary"],
             images=data["images"],
-            theme_path=str(theme_path)  # Pass the theme path!
+            theme_css=theme_css_content # Pass the CSS content directly
         )
 
         # 5. Convert to PDF using WeasyPrint
         try:
+            # For the base_url, use the current working directory's URI
             pdf_bytes = HTML(string=rendered_html).write_pdf()
             return pdf_bytes
         except Exception as e:

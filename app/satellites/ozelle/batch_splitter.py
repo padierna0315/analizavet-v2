@@ -151,6 +151,14 @@ class BatchSplitter:
         import re
         if not file_content:
             return []
+
+        # Quick check: if there's only one or zero MSH segments, treat as a single message
+        # This prevents modification of single messages by the normalization below.
+        if file_content.count(b'MSH|') <= 1:
+            if b'MSH|' in file_content:
+                return [file_content]
+            else:
+                return []
         
         # Normalize line endings to \n for consistent parsing
         content = file_content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
@@ -170,7 +178,7 @@ class BatchSplitter:
         # Filter: keep only non-empty ORU^R01 messages (skip any remaining non-patient content)
         messages = []
         for msg in raw_messages:
-            msg = msg.strip()
+
             if not msg:
                 continue
             # Verify this is an ORU^R01 patient message (not ZHB or other non-patient)
