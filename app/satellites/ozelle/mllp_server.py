@@ -11,7 +11,7 @@ from datetime import datetime
 import logfire
 
 from app.satellites.ozelle.hl7_parser import parse_hl7_message, HL7ParsingError, HeartbeatMessageException
-from app.schemas.reception import PatientSource
+from app.domains.reception.schemas import PatientSource
 
 
 # MLLP Framing characters

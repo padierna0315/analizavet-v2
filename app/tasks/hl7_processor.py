@@ -14,11 +14,11 @@ import uuid
 
 from sqlmodel import Session, create_engine
 from app.database import AsyncSessionLocal
-from app.schemas.reception import RawPatientInput, PatientSource
-from app.schemas.taller import EnrichRequest, ImageUploadRequest
+from app.domains.reception.schemas import RawPatientInput, PatientSource
+from app.domains.taller.schemas import EnrichRequest, ImageUploadRequest
 from app.satellites.ozelle.hl7_parser import parse_hl7_message, HL7ParsingError, HeartbeatMessageException, ParsedOzelleMessage
-# from app.core.reception.service import ReceptionService # Moved to inside function
-from app.core.taller.service import TallerService # Moved to inside function
+# from app.domains.reception.service import ReceptionService # Moved to inside function
+from app.domains.taller.service import TallerService # Moved to inside function
 from app.config import settings # Import settings
 
 
@@ -27,12 +27,12 @@ from app.config import settings # Import settings
 
 
 def _reception_service() -> "ReceptionService":
-    from app.core.reception.service import ReceptionService # Local import to break circular dependency
+    from app.domains.reception.service import ReceptionService # Local import to break circular dependency
     return ReceptionService()
 
 
 def _taller_service() -> "TallerService":
-    from app.core.taller.service import TallerService # Local import to break circular dependency
+    from app.domains.taller.service import TallerService # Local import to break circular dependency
     return TallerService()
 
 # Synchronous engine for Dramatiq actor's DB operations

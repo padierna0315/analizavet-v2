@@ -11,8 +11,8 @@ import anyio
 
 from datetime import datetime, timezone
 from app.database import AsyncSessionLocal
-from app.schemas.reception import RawPatientInput, PatientSource
-from app.core.reception.service import ReceptionService
+from app.domains.reception.schemas import RawPatientInput, PatientSource
+from app.domains.reception.service import ReceptionService
 
 
 # ── Module-level service instances (shared across actor invocations) ─────────

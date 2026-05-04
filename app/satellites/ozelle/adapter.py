@@ -1,6 +1,6 @@
 from app.satellites.base import SourceAdapter
 from app.satellites.ozelle.mllp_server import OzelleMLLPServer
-from app.schemas.reception import PatientSource
+from app.domains.reception.schemas import PatientSource
 
 
 class OzelleAdapter(SourceAdapter):

@@ -285,5 +285,3 @@ async def get_patient_card(
             "patient": patient_data
         }
     )
-
-

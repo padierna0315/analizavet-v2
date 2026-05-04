@@ -267,5 +267,3 @@ class ReceptionService:
             "normalized_owner": patient.normalized_owner
         }
         return patient_data
-
-

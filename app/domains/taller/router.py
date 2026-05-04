@@ -56,7 +56,7 @@ async def taller_dashboard(
 
         result = await session.execute(
             select(TestResult)
-            .where(TestResult.received_at >= cutoff)
+            .where(TestResult.status != "listo")
             .order_by(TestResult.received_at.desc())
             .limit(10)
         )

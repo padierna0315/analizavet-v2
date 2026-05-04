@@ -7,10 +7,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.routers import health
 from app.routers.mllp import router as mllp_router
-from app.routers.reception import router as reception_router
-from app.routers.taller import router as taller_router
-from app.routers.reports import router as reports_router
-from app.routers.patients import router as patients_ui_router
+from app.domains.reception.router import router as reception_router
+from app.domains.taller.router import router as taller_router
+from app.domains.reports.router import router as reports_router
+from app.domains.patients.router import router as patients_ui_router
 from app.logging_config import setup_logging
 from app.config import settings
 from app.satellites.ozelle import OzelleAdapter

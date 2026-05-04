@@ -1,4 +1,4 @@
 # Reports core module
-from app.core.reports.service import ReportService
+from app.domains.reports.service import ReportService
 
 __all__ = ["ReportService"]

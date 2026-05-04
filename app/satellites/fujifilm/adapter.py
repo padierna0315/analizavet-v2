@@ -1,7 +1,7 @@
 import asyncio
 import logfire
 from app.satellites.base import SourceAdapter
-from app.schemas.reception import PatientSource
+from app.domains.reception.schemas import PatientSource
 
 
 class FujifilmAdapter(SourceAdapter):

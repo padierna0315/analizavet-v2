@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship
 
 if TYPE_CHECKING:
-    from app.models.patient import Patient
+    from app.domains.patients.models import Patient
     from app.shared.models.lab_value import LabValue
     from app.shared.models.patient_image import PatientImage
 

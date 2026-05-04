@@ -10,8 +10,8 @@ from pydantic import BaseModel
 import re
 import logfire
 
-from app.schemas.taller import RawLabValueInput, ImageUploadItem
-from app.core.taller.images import _translate_base_code, _parse_obs_identifier
+from app.domains.taller.schemas import RawLabValueInput, ImageUploadItem
+from app.domains.taller.images import _translate_base_code, _parse_obs_identifier
 
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
