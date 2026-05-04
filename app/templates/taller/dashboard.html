@@ -466,27 +466,30 @@
       <span class="header-subtitle">— Analizavet</span>
     </div>
      <div class="header-actions">
-       <button class="btn-header btn-generate-pdf" type="button">
+       <button class="btn-header btn-generate-pdf" type="button" onclick="alert('Funcionalidad de Generar PDF aún no conectada a esta vista.')">
          📄 Generar PDF
        </button>
-       <form hx-post="/reception/upload" 
-             hx-target="body" 
-             hx-swap="none"
-             enctype="multipart/form-data">
-         <label class="btn-header btn-upload-lis" for="lis-file-input" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;"
-               hx-indicator="#upload-spinner"
-               hx-disabled-elt="this">
-           ⬆️ Subir LIS
-         </label>
-         <input type="file" 
-                id="lis-file-input" 
-                name="file" 
-                accept=".txt" 
-                required
-                style="display: none;"
-                onchange="this.form.requestSubmit()">
-         <span id="upload-spinner" class="htmx-indicator">⏳</span>
-       </form>
+       <div style="position: relative;">
+        <button class="btn-header btn-upload-lis" onclick="document.getElementById('upload-form-popup').style.display = 'block'">
+          ⬆️ Subir Datos
+        </button>
+        <div id="upload-form-popup" style="display: none; position: absolute; top: 100%; right: 0; background-color: white; border: 1px solid #ccc; padding: 1rem; border-radius: 0.5rem; z-index: 100; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+          <form hx-post="/reception/upload"
+                hx-encoding="multipart/form-data"
+                hx-target="body" 
+                hx-swap="none"
+                hx-on::after-request="this.form.reset(); this.closest('#upload-form-popup').style.display='none'">
+            <label for="file_type_select">Tipo de archivo:</label>
+            <select name="file_type" id="file_type_select" required>
+              <option value="ozelle">Ozelle</option>
+              <option value="fujifilm">Fujifilm</option>
+              <option value="json">JSON (Bautizo)</option>
+            </select>
+            <input type="file" name="file" required onchange="this.form.dispatchEvent(new Event('submit', {bubbles: true}))">
+            <span class="htmx-indicator">⏳</span>
+          </form>
+        </div>
+       </div>
      </div>
     <!-- Status Bar within header area -->
     <div class="status-bar"
@@ -494,70 +497,29 @@
       hx-get="/api/adapters/status"
       hx-trigger="load, every 5s"
       hx-swap="innerHTML">
-      {% for adapter in adapters %}
-      <div class="adapter-card">
-        <span class="adapter-icon">🩸</span>
-        <span class="adapter-name">{{ adapter.name }}</span>
-        <span class="adapter-status {{ 'active' if adapter.is_running else 'inactive' }}"
-          title="{{ 'Conectado' if adapter.is_running else 'Desconectado' }}"></span>
-      </div>
-      {% endfor %}
+      <!-- Placeholder for adapter status -->
     </div>
   </div>
 
   <!-- Reception Section -->
   <div class="reception-section">
-  <div class="reception-header" onclick="toggleReception()">
-    <div class="reception-title">
-      <span>📥</span>
-      <span>Recepción de Pacientes</span>
-      {% if has_pending_patients %}
-      <span class="reception-badge">{{ pending_patients|length }}</span>
-      {% endif %}
-    </div>
-    <span id="reception-toggle-icon">▼</span>
-  </div>
-  <div class="reception-content" id="reception-content">
-    {% if has_pending_patients %}
-      <div class="pending-patients-list"
-           hx-get="/taller/pending-patients"
-           hx-trigger="every 5s"
-           hx-swap="innerHTML">
-        {% for patient in pending_patients %}
-        <div class="pending-patient-item"
-             hx-post="/taller/load-patient/{{ patient.test_id }}"
-             hx-target=".taller-workspace">
-          <div class="pending-patient-info">
-            <div class="pending-patient-name">{{ patient.name }}</div>
-            <div class="pending-patient-meta">
-              {{ patient.species }} • Tutor: {{ patient.owner_name }} • {{ patient.test_type }}
-            </div>
+      <div class="reception-header" onclick="document.getElementById('reception-content').style.display = document.getElementById('reception-content').style.display === 'none' ? 'block' : 'none';">
+          <div class="reception-title">
+              <span>📥</span>
+              <span>Recepción de Pacientes</span>
           </div>
-      <div class="pending-patient-actions">
-        <button class="btn-delete-patient"
-          hx-delete="/taller/pending-patient/{{ patient.patient_id }}"
-          hx-confirm="¿Eliminar de la cola?"
-          hx-swap="outerHTML swap:300ms"
-          hx-indicator="#delete-indicator-{{ patient.patient_id }}"
-          hx-disabled-elt="this"
-          onclick="event.stopPropagation()">
-          🗑️
-        </button>
-        <span id="delete-indicator-{{ patient.patient_id }}" class="htmx-indicator">...</span>
+          <span id="reception-toggle-icon">▼</span>
       </div>
-        </div>
-        {% endfor %}
+      <div class="reception-content" id="reception-content"
+           hx-get="/reception/taller/reception"
+           hx-trigger="load, every 5s, refreshReceptionGrid from:body"
+           hx-swap="innerHTML">
+          <div class="reception-status-msg">Cargando pacientes...</div>
       </div>
-    {% else %}
-      <div class="reception-status-msg">
-        {{ reception_status }}
-      </div>
-    {% endif %}
   </div>
-</div>
 
 <!-- Workspace: Editor + Viewer -->
-<div class="taller-workspace">
+<div class="taller-workspace" id="workshop-view">
   <!-- Editor: Patient Form -->
   <div class="workspace-left workspace-editor">
     <div class="workspace-header">
@@ -595,16 +557,13 @@
 </div>
 
 <script>
-function toggleReception() {
-  const content = document.getElementById('reception-content');
-  const icon = document.getElementById('reception-toggle-icon');
-  if (content.style.display === 'none') {
-    content.style.display = 'block';
-    icon.textContent = '▼';
-  } else {
-    content.style.display = 'none';
-    icon.textContent = '▶';
+// Close upload popup if clicking outside
+document.addEventListener('click', function(event) {
+  const popup = document.getElementById('upload-form-popup');
+  const button = document.getElementById('upload-btn');
+  if (popup && button && !popup.contains(event.target) && !button.contains(event.target)) {
+    popup.style.display = 'none';
   }
-}
+});
 </script>
 {% endblock %}
