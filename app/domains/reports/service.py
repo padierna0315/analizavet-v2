@@ -29,17 +29,11 @@ class ReportService:
         if not data:
             return None
 
-        # 2. Filtrar solo imágenes relevantes para el PDF
-        # _Main = imagen principal del parámetro (morfología)
-        # _Histo = histograma
-        # _Distribution = distribución celular
-        # Las _Part1, _Part2... son fragmentos internos — NO van en el PDF
-        PDF_IMAGE_SUFFIXES = ("_Main.jpg", "_Histo.jpg", "_Distribution.jpg")
-        data["images"] = [
-            img for img in data["images"]
-            if img.get("is_included_in_report")
-            and any(img.get("file_path", "").endswith(s) for s in PDF_IMAGE_SUFFIXES)
-        ]
+        # TODO: Integrar imágenes al PDF cuando Santiago defina qué imágenes incluir y cómo.
+        # Por ahora se generan sin imágenes para mantener velocidad de generación.
+        # Las imágenes siguen extrayéndose y guardándose en disco correctamente.
+        images = []  # Sin imágenes en PDF hasta nueva decisión
+
 
         # 3. Add absolute paths to images for WeasyPrint to find them
         current_dir = Path.cwd().absolute()
@@ -65,7 +59,7 @@ class ReportService:
             test_result=data["test_result"],
             lab_values=data["lab_values"],
             summary=data["summary"],
-            images=data["images"],
+            images=images,
             theme_css=theme_css_content # Pass the CSS content directly
         )
 
@@ -97,16 +91,12 @@ class ReportService:
         Versión síncrona pura — recibe datos ya cargados, no necesita DB.
         Diseñada para ejecutarse en un ThreadPoolExecutor desde el endpoint async.
         """
-        PDF_IMAGE_SUFFIXES = ("_Main.jpg", "_Histo.jpg", "_Distribution.jpg")
-        images = [
-            img for img in data.get("images", [])
-            if img.get("is_included_in_report")
-            and any(img.get("file_path", "").endswith(s) for s in PDF_IMAGE_SUFFIXES)
-        ]
+        # TODO: Integrar imágenes al PDF cuando Santiago defina qué imágenes incluir y cómo.
+        # Por ahora se generan sin imágenes para mantener velocidad de generación.
+        # Las imágenes siguen extrayéndose y guardándose en disco correctamente.
+        images = []  # Sin imágenes en PDF hasta nueva decisión
 
-        current_dir = Path.cwd().absolute()
-        for img in images:
-            img["absolute_path"] = (current_dir / img["file_path"]).as_uri()
+
 
         theme_name = getattr(settings, "PDF_THEME", "huellas_lab")
         theme_filepath = current_dir / "app" / "static" / "css" / "themes" / f"{theme_name}.css"

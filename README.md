@@ -1,129 +1,84 @@
 # Analizavet V2
 
-Sistema veterinario de análisis de laboratorio - Versión 2.0
+Aplicación de laboratorio clínico veterinario personal.
+Desarrollada por Santiago (veterinario) para su uso exclusivo.
 
-## Estado Actual (2026-04-30)
+## Qué hace
+- Recibe datos de analizadores de laboratorio (Ozelle HL7, Fujifilm) via MLLP TCP o archivo .txt
+- Registra pacientes con sus resultados de laboratorio
+- Procesa y despliega resultados en el Taller con valores de referencia y flags
+- Genera PDFs de reportes clínicos por paciente
 
-### ✅ Funcional
-- Upload de archivos HL7 .txt - batch splitting funciona
-- Filtrado de heartbeats ZHB
-- Extracción de pacientes (PID), valores de laboratorio (OBX), imágenes (Base64)
-- Base de datos limpia (analizavet.db eliminada para pruebas)
-- Dramatiq worker con manejo automático de conflictos de puerto Prometheus
+## Flujo de trabajo diario
+1. Abrir `iniciar.sh` → la app arranca en http://localhost:8000
+2. Opcionalmente: click en 🔴 del navbar para conectar las máquinas LIS (Ozelle puerto 6000, Fujifilm puerto 6001)
+3. Subir archivos .txt manualmente (workaround hasta conectar máquinas en laboratorio)
+4. Procesar pacientes en el Taller
+5. Generar PDF por paciente al final de la jornada
 
-### 🔧 En Desarrollo (Pendiente)
-- Dashboard avanzado de gestión de pacientes
-- Exportación masiva de PDFs
-- Integración con dispositivos Fujifilm (emulación)
+## Stack técnico
+- **Backend**: FastAPI + SQLModel + SQLite
+- **Frontend**: HTMX + Jinja2 (sin JavaScript framework)
+- **PDF**: WeasyPrint
+- **Laboratorio**: Dramatiq + Redis (solo cuando MLLP activo), adaptadores Ozelle/Fujifilm
+- **Entorno**: Python 3.11 + uv
 
-### 🛠️ Solución de Problemas
-
-#### Issue: "Worker no arranca / Error puerto 9191 o 9200"
-**Causa**: El proceso anterior de Dramatiq no se cerró correctamente, dejando los puertos Prometheus (9191/9200) ocupados.
-Dramatiq 1.15.0 incluye el middleware Prometheus por defecto que requiere estos puertos.
-**Solución**: Ejecutar `./iniciar.sh` nuevamente. El script limpiará automáticamente cualquier proceso usando puertos 9191/9200 antes de iniciar el worker.
-
-#### Issue: "Redis no responde"
-**Causa**: El servicio Redis no está corriendo.
-**Solución**: `./iniciar.sh` inicia Redis automáticamente. Verificar con `redis-cli ping`.
-
-#### Issue: "Mensajes en cola pero no se procesan"
-**Causa**: El worker de Dramatiq está caído.
-**Solución**: Reiniciar con `./iniciar.sh` o verificar logs del worker.
-
-#### Comandos útiles para diagnóstico:
-```bash
-# Ver procesos dramatiq activos
-ps aux | grep dramatiq
-
-# Matar procesos colgados
-pkill -f dramatiq
-
-# Ver puertos en uso
-lsof -ti:9191,9200
-
-# Ver colas Redis
-redis-cli LLEN dramatiq:default
-redis-cli LRANGE dramatiq:default.DLQ 0 -1  # Mensajes fallidos
+## Arquitectura — Screaming Architecture
+```
+app/
+├── domains/          # Un dominio = una carpeta con TODO lo suyo
+│   ├── reception/    # Recepción de pacientes y uploads
+│   ├── taller/       # Procesamiento de resultados de laboratorio
+│   ├── patients/     # Gestión de pacientes
+│   ├── reports/      # Generación de PDFs
+│   ├── mllp/         # Control de máquinas LIS (botón navbar)
+│   └── health/       # Health check
+├── shared/           # Código compartido entre dominios
+│   ├── models/       # Modelos SQLModel compartidos
+│   └── algorithms/   # Algoritmos clínicos (valores de referencia, flags)
+├── satellites/       # Adaptadores de máquinas (Ozelle HL7, Fujifilm)
+├── tasks/            # Procesadores Dramatiq (MLLP)
+├── templates/        # Templates Jinja2 por dominio
+├── static/           # CSS, JS, imágenes
+├── main.py           # Entry point FastAPI
+├── database.py       # Configuración SQLite
+├── config.py         # Dynaconf settings
+└── mllp_state.py     # Estado compartido de máquinas LIS
 ```
 
-### Archivos de Prueba
-- `log_prueba.txt` - 1 paciente (ichiro, canino, 5 años)
-- `log_laboratorio_17 de abril.txt` - 12 pacientes
+## Configuración
+Variables en `settings.toml`:
+- `MLLP_ENABLED = false` — si true, arranca Redis + Dramatiq + adaptadores al inicio
+- `LOGFIRE_ENABLED = false` — si true, activa observabilidad Logfire
 
-## Inicio Rápido
-
+## Iniciar la app
 ```bash
-# Limpiar procesos anteriores si hay conflictos de puerto
-pkill -f dramatiq
-
-# Iniciar todo
 ./iniciar.sh
 ```
-
-## Stack Tecnológico
-
-- **Python 3.11** + **uv** (gestor de dependencias)
-- **FastAPI** + **HTMX** (server-side rendering)
-- **SQLModel** + **SQLite** (desarrollo) / PostgreSQL (producción)
-- **Dramatiq** + **Redis** (tareas en background)
-- **WeasyPrint** (generación de PDFs)
-- **CSS Grid Areas** (layout flexible y desacoplado)
-
-## Comandos Útiles
-
+Sin Redis, sin Dramatiq. Solo FastAPI. Si necesitas MLLP:
 ```bash
-# Ver procesos dramatiq activos
-ps aux | grep dramatiq
-
-# Matar procesos colgados
-pkill -f dramatiq
-
-# Ver colas Redis
-redis-cli LLEN dramatiq:default
-
-# Ver mensajes en cola (dead letter si fallaron)
-redis-cli LRANGE dramatiq:default.DLQ 0 -1
-
-# Iniciar solo servidor (sin dramatiq)
-uv run uvicorn app.main:app --reload
-
-# Iniciar solo workers dramatiq (para debugging)
-uv run dramatiq app.tasks:broker --threads 2
+MLLP_ENABLED=true ./iniciar.sh
 ```
+O usa el botón 🔴/🟢 en el navbar una vez que la app está corriendo.
 
-## Estructura del Proyecto
+## Estado actual (v0)
+- ✅ Upload de archivos .txt (Ozelle y Fujifilm)
+- ✅ Sala de espera (recepción de pacientes)
+- ✅ Taller con valores de referencia y flags
+- ✅ Generación de PDF por paciente
+- ✅ Botón MLLP en navbar para conectar/desconectar máquinas
+- ✅ Extracción y almacenamiento de imágenes de analizador
+- 🔲 Integración MLLP TCP en laboratorio (pendiente prueba real)
+- 🔲 Imágenes en PDF (pendiente decisión de diseño)
+- 🔲 JSON "recepcionista" para bautizo de pacientes (pendiente formato con médicos)
+- 🔲 Valores de referencia actualizados (en curso)
+- 🔲 Plantilla visual del PDF (en curso)
 
-```
-Analizavet-v2/
-├── app/
-│   ├── core/           # Lógica de negocio (el "cerebro")
-│   │   ├── reception/  # Normalización de pacientes
-│   │   └── taller/    # Engine, flagging, imágenes
-│   ├── satellites/    # Adaptadores (los "sentidos")
-│   │   ├── ozelle/    # Parser HL7, MLLP server
-│   │   └── fujifilm/  # Stub para Fujifilm
-│   ├── routers/       # Endpoints HTTP
-│   ├── tasks/         # Tareas Dramatiq (broker.py, hl7_processor.py)
-│   ├── templates/      # Jinja2 templates
-│   └── static/         # CSS, JS
-├── tests/
-├── iniciar.sh          # Script de inicio (corregido 2026-04-30)
-└── log_prueba.txt      # Archivo de prueba (1 paciente)
-```
+## Pendientes conocidos
+Ver issues en engram (#715 archivado, #717 archivado).
 
-## Formato HL7 de Ozelle
-
-```
-MSH|^~\&|HEARTBEAT|...|ZHB^H00|...  ← IGNORAR (heartbeat)
-MSH|^~\&|EHVT-50|...|ORU^R01|...     ← PACIENTE (inicio)
-PID|...|nombre especie edad dueño|   ← Datos paciente
-OBR|...|CBC^Complete Blood Count|    ← Tipo análisis
-OBX|1|ST|WBC^||14.26|...             ← Parámetros
-OBX|43|ED|RBC_Histo||Base64^/9j/...  ← Imágenes (hasta = antes de |||||F)
-```
-
-## Licencia
-
-MIT - Huellas Lab
-
+## Notas de desarrollo
+- NO usar `--reload` con uvicorn — WeasyPrint es incompatible
+- `uv run` para todos los comandos Python
+- Tests automatizados: no existen aún — verificación manual
+- Las imágenes de analizador se guardan en `images/` pero NO se incluyen en el PDF todavía

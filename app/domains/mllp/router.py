@@ -10,7 +10,7 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 @router.post("/start", status_code=status.HTTP_200_OK)
-async def start_mllp_adapters():
+async def start_mllp_adapters(request: Request):
     if mllp_state.running:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -38,7 +38,10 @@ async def start_mllp_adapters():
 
         mllp_state.running = True
         logfire.info("Adaptadores MLLP iniciados correctamente.")
-        return {"message": "Máquinas conectadas correctamente."}
+        return templates.TemplateResponse(
+            "mllp_status_button.html",
+            {"request": request, "mllp_running": mllp_state.running}
+        )
     except Exception as e:
         logfire.error(f"Error al iniciar adaptadores MLLP: {e}")
         raise HTTPException(
@@ -48,7 +51,7 @@ async def start_mllp_adapters():
 
 
 @router.post("/stop", status_code=status.HTTP_200_OK)
-async def stop_mllp_adapters():
+async def stop_mllp_adapters(request: Request):
     if not mllp_state.running:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -64,7 +67,10 @@ async def stop_mllp_adapters():
 
         mllp_state.running = False
         logfire.info("Adaptadores MLLP detenidos correctamente.")
-        return {"message": "Máquinas desconectadas correctamente."}
+        return templates.TemplateResponse(
+            "mllp_status_button.html",
+            {"request": request, "mllp_running": mllp_state.running}
+        )
     except Exception as e:
         logfire.error(f"Error al detener adaptadores MLLP: {e}")
         raise HTTPException(
