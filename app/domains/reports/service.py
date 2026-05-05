@@ -96,9 +96,8 @@ class ReportService:
         # Las imágenes siguen extrayéndose y guardándose en disco correctamente.
         images = []  # Sin imágenes en PDF hasta nueva decisión
 
-
-
         theme_name = getattr(settings, "PDF_THEME", "huellas_lab")
+        current_dir = Path.cwd().absolute()
         theme_filepath = current_dir / "app" / "static" / "css" / "themes" / f"{theme_name}.css"
         try:
             theme_css_content = theme_filepath.read_text()
