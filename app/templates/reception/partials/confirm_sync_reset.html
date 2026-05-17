@@ -24,6 +24,15 @@
                 ➕ Solo agregar pacientes nuevos
             </button>
 
+            <button class="btn-header" style="justify-content: center; background-color: #3b82f6; color: white;"
+                    hx-post="/reception/archive" 
+                    hx-target="#sync-status"
+                    hx-swap="innerHTML"
+                    hx-indicator="#sync-spinner"
+                    hx-on::after-request="document.getElementById('modal-container').innerHTML = ''">
+                📦 Archivar pacientes en recepción
+            </button>
+
             <button class="btn-cancel" 
                     hx-get="/reception/close-modal" 
                     hx-target="#modal-container"

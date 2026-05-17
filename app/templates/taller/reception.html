@@ -3,3 +3,16 @@
     {% include "reception/partials/patient_card.html" %}
   {% endfor %}
 </div>
+
+<div style="padding: 0 1rem 1rem 1rem; border-top: 1px solid #e2e8f0; margin-top: 0.5rem;">
+  <button 
+    class="btn-header"
+    style="font-size: 0.85rem; justify-content: center;"
+    hx-get="/reception/archived"
+    hx-target="#archived-container"
+    hx-swap="innerHTML"
+  >
+    📦 Ver archivados
+  </button>
+  <div id="archived-container" style="margin-top: 0.5rem;"></div>
+</div>

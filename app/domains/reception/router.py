@@ -287,6 +287,100 @@ async def get_taller_reception(
 
 
 
+# ── Archiving endpoints ──────────────────────────────────────────────────
+
+
+@router.post("/archive", response_class=HTMLResponse)
+async def archive_all_patients(
+    session: AsyncSession = Depends(get_session),
+):
+    """Archive all active patients — soft-hide via status flag, then sync."""
+    count = await _service.archive_all_active(session)
+
+    # Run additive AppSheet sync after archiving (same pattern as existing sync)
+    try:
+        from app.services.appsheet import AppSheetService
+        service = AppSheetService()
+        patients = await service.fetch_active_patients()
+        sync_count = await _service.sync_from_appsheet(patients, session, reset=False)
+        logfire.info(f"Post-archive sync: {sync_count} pacientes sincronizados")
+    except Exception as e:
+        logfire.error(f"Error en sync post-archivo: {e}")
+
+    return HTMLResponse(
+        content=f'<div class="sync-success">📦 {count} paciente(s) archivado(s)</div>',
+        headers={"HX-Trigger": "refreshReceptionGrid"}
+    )
+
+
+@router.post("/restore", response_class=HTMLResponse)
+async def restore_all_patients(
+    session: AsyncSession = Depends(get_session),
+):
+    """Restore all archived patients back to active."""
+    count = await _service.restore_all_archived(session)
+    return HTMLResponse(
+        content=f'<div class="sync-success">🔄 {count} paciente(s) restaurado(s)</div>',
+        headers={"HX-Trigger": "refreshReceptionGrid"}
+    )
+
+
+@router.post("/patient/{patient_id}/restore", response_class=HTMLResponse)
+async def restore_single_patient(
+    patient_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Restore a single archived patient back to active."""
+    found = await _service.restore_single_archived(patient_id, session)
+    if not found:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    return HTMLResponse(
+        content=f'<div class="sync-success">🔄 Paciente {patient_id} restaurado</div>',
+        headers={"HX-Trigger": "refreshReceptionGrid"}
+    )
+
+
+@router.get("/archived", response_class=HTMLResponse)
+async def get_archived_patients(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return the archived patients grid."""
+    patients_data = await _service.get_archived_patients(session)
+
+    if not patients_data:
+        return HTMLResponse(
+            content='<p style="color: #6b7280; text-align: center; padding: 2rem;">📦 Sin resultados archivados</p>'
+        )
+
+    cards_html = ""
+    for p in patients_data:
+        session_label = f"{p['session_code']} - " if p.get("session_code") else ""
+        owner_label = f"<p>{p['owner_name']}</p>" if p.get("owner_name") else ""
+        cards_html += f"""
+        <div class="patient-card" id="patient-card-{p['id']}" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 1rem; opacity: 0.7;">
+          <p><strong>{session_label}{p['name']}</strong></p>
+          <p>{p['species']}</p>
+          {owner_label}
+          <button
+            hx-post="/reception/patient/{p['id']}/restore"
+            hx-target="#sync-status"
+            hx-swap="innerHTML"
+            hx-on::after-request="document.getElementById('patient-card-{p['id']}').remove(); if(document.querySelectorAll('.archived-grid .patient-card').length === 0) location.reload();"
+            style="margin-top: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 0.25rem; padding: 0.25rem 0.75rem; cursor: pointer;"
+          >
+            🔄 Restaurar
+          </button>
+        </div>
+        """
+
+    return HTMLResponse(
+        content=f'<div class="archived-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; padding: 1rem;">{cards_html}</div>'
+    )
+
+
 @router.get("/close-modal")
 async def close_modal():
     return HTMLResponse("")

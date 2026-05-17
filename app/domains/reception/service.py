@@ -101,11 +101,16 @@ class ReceptionService:
             f"[fuente={raw_input.source.value}]"
         )
 
-        # 1. Buscar por session_code PRIMERO
-        lookup_code = raw_input.session_code or raw_input.raw_string
-        stmt = select(Patient).where(Patient.session_code == lookup_code)
-        result = await session.execute(stmt)
-        existing_patient = result.scalar_one_or_none()
+        # 1. Buscar por session_code PRIMERO (only if session_code is present)
+        lookup_code = raw_input.session_code
+
+        # Only attempt session_code lookup if code is present
+        if lookup_code:
+            stmt = select(Patient).where(Patient.session_code == lookup_code)
+            result = await session.execute(stmt)
+            existing_patient = result.scalar_one_or_none()
+        else:
+            existing_patient = None
 
         if existing_patient:
             logfire.info(
@@ -184,9 +189,11 @@ class ReceptionService:
         if raw_input.source == PatientSource.LIS_FUJIFILM:
             stmt = select(Patient).where(Patient.normalized_name == norm_name)
             result = await session.execute(stmt)
-            fuji_match = result.scalars().first()
-            
-            if fuji_match:
+            fuji_matches = result.scalars().all()
+
+            if len(fuji_matches) == 1:
+                fuji_match = fuji_matches[0]
+
                 logfire.info(
                     f"Fujifilm: paciente encontrado por nombre: {fuji_match.name} "
                     f"[id={fuji_match.id}]"
@@ -202,7 +209,7 @@ class ReceptionService:
                 session.add(fuji_match)
                 await session.commit()
                 await session.refresh(fuji_match)
-                
+
                 # Sanitize age fields from DB (defensive — Patient model has no cross-field validator)
                 sanitized_has_age, sanitized_age_value, sanitized_age_unit, sanitized_age_display = \
                     _sanitize_patient_age(
@@ -213,7 +220,7 @@ class ReceptionService:
                     )
 
                 # Write-back: heal inconsistent DB data
-                if (fuji_match.has_age != sanitized_has_age or 
+                if (fuji_match.has_age != sanitized_has_age or
                     fuji_match.age_value != sanitized_age_value):
                     fuji_match.has_age = sanitized_has_age
                     fuji_match.age_value = sanitized_age_value
@@ -239,16 +246,18 @@ class ReceptionService:
                     created=False,
                     patient=normalized,
                 )
-            
-            # No existe — seguir flujo normal (creará paciente con "Desconocida")
+
+            # 0 or >=2 matches → fall through to normal flow (creará paciente con "Desconocida")
         
         # ── OZELLE / FILE: buscar por nombre únicamente ────────────────────
         if raw_input.source in (PatientSource.LIS_OZELLE, PatientSource.LIS_FILE):
             stmt = select(Patient).where(Patient.normalized_name == norm_name)
             result = await session.execute(stmt)
-            ozelle_match = result.scalars().first()
-            
-            if ozelle_match:
+            ozelle_matches = result.scalars().all()
+
+            if len(ozelle_matches) == 1:
+                ozelle_match = ozelle_matches[0]
+
                 logfire.info(
                     f"Ozelle/File: paciente encontrado por nombre: {ozelle_match.name} "
                     f"[id={ozelle_match.id}]"
@@ -302,6 +311,8 @@ class ReceptionService:
                     created=False,
                     patient=normalized,
                 )
+
+            # 0 or >=2 matches → fall through to normal flow (dedup or creation)
         
         # Check if patient already exists using deduplication key
         existing_patient = await self._baul._find_existing(
@@ -802,6 +813,107 @@ class ReceptionService:
                 raise ValueError(f"Tipo de archivo no soportado: '{file_type}'")
         
         return upload_id # Return the upload_id for the frontend to poll
+
+    # ── Archiving (soft-hide via status flag) ──────────────────────────
+
+    async def archive_all_active(self, session: AsyncSession) -> int:
+        """Set waiting_room_status='archived' for all active patients.
+
+        Returns the number of patients archived.
+        """
+        from sqlalchemy import update as sa_update
+
+        stmt = (
+            sa_update(Patient)
+            .where(Patient.waiting_room_status == "active")
+            .values(waiting_room_status="archived", updated_at=datetime.now(timezone.utc))
+        )
+        result = await session.execute(stmt)
+        await session.commit()
+
+        count = result.rowcount if hasattr(result, "rowcount") else 0
+        logfire.info(f"Archived {count} patients (active → archived)")
+        return count
+
+    async def restore_all_archived(self, session: AsyncSession) -> int:
+        """Set waiting_room_status='active' for all archived patients.
+
+        Returns the number of patients restored.
+        """
+        from sqlalchemy import update as sa_update
+
+        stmt = (
+            sa_update(Patient)
+            .where(Patient.waiting_room_status == "archived")
+            .values(waiting_room_status="active", updated_at=datetime.now(timezone.utc))
+        )
+        result = await session.execute(stmt)
+        await session.commit()
+
+        count = result.rowcount if hasattr(result, "rowcount") else 0
+        logfire.info(f"Restored {count} patients (archived → active)")
+        return count
+
+    async def restore_single_archived(self, patient_id: int, session: AsyncSession) -> bool:
+        """Set a single patient's status back to 'active'.
+
+        Returns True if the patient was found and updated, False if not found.
+        Idempotent: if already active, still returns True.
+        """
+        patient = await session.get(Patient, patient_id)
+        if not patient:
+            return False
+
+        patient.waiting_room_status = "active"
+        patient.updated_at = datetime.now(timezone.utc)
+        session.add(patient)
+        await session.commit()
+        logfire.info(f"Restored patient {patient_id} (→ active)")
+        return True
+
+    async def get_archived_patients(self, session: AsyncSession) -> list[dict]:
+        """Get all archived patients formatted for display."""
+        from app.shared.models.test_result import TestResult
+
+        query = (
+            select(Patient)
+            .where(Patient.waiting_room_status == "archived")
+            .order_by(Patient.updated_at.desc())
+        )
+        result = await session.execute(query)
+        patients = result.scalars().all()
+
+        patients_data = []
+        for patient in patients:
+            # Get latest TestResult id for this patient
+            tr_query = (
+                select(TestResult.id)
+                .where(TestResult.patient_id == patient.id)
+                .order_by(TestResult.id.desc())
+                .limit(1)
+            )
+            tr_result = await session.execute(tr_query)
+            latest_result_id = tr_result.scalar_one_or_none()
+
+            patients_data.append({
+                "id": patient.id,
+                "name": patient.name,
+                "species": patient.species,
+                "sex": patient.sex,
+                "owner_name": patient.owner_name,
+                "age_display": patient.age_display,
+                "session_code": patient.session_code,
+                "waiting_room_status": patient.waiting_room_status,
+                "sources_received": list(patient.sources_received or []),
+                "appsheet_test_type": patient.appsheet_test_type,
+                "appsheet_test_type_code": patient.appsheet_test_type_code,
+                "result_id": latest_result_id,
+                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None,
+                "source": patient.source,
+            })
+
+        return patients_data
 
     async def get_single_patient_for_card(
         self, patient_id: int, session: AsyncSession

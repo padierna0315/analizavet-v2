@@ -110,7 +110,7 @@ class Patient(SQLModel, table=True):
 
     # Waiting room fields (for sala-espera-persistente)
     session_code: Optional[str] = Field(default=None, index=True)  # e.g., "A1-20260501"
-    waiting_room_status: str = Field(default="active")  # active, deleted, pdf_generated
+    waiting_room_status: str = Field(default="active")  # active, archived, deleted, pdf_generated
     sources_received: List[str] = Field(
         default_factory=list,
         sa_column=Column(_MutableJsonList),

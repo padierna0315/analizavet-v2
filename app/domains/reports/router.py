@@ -1,10 +1,17 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select, delete
 import unicodedata
+import logfire
 
 from app.database import get_session
 from app.domains.reports.service import ReportService
 from app.domains.taller.service import TallerService
+from app.domains.patients.models import Patient
+from app.domains.exam_order.models import ExamOrder
+from app.shared.models.patient_archive import PatientArchive
 
 router = APIRouter(prefix="/reports", tags=["Reportes"])
 _report_service = ReportService()
@@ -56,6 +63,84 @@ async def download_pdf(
     filename = f"{patient_name}-{owner_name}-{doctor_name}.pdf"
 
     pdf_bytes = _report_service.generate_pdf_sync(data)
+
+    # ── Retirement: archive patient data + cascade delete ──────────────
+    patient_id = data["patient"]["id"]
+    patient_name_display = data["patient"]["name"]
+    owner_name_display = data["patient"]["owner_name"]
+    species = data["patient"]["species"]
+    session_code = data["patient"].get("session_code")
+
+    # Phase 1: Archive — serialize full data dict to JSON and INSERT
+    try:
+        snapshot_json = json.dumps(data, default=str, ensure_ascii=False)
+        archive = PatientArchive(
+            session_code=session_code,
+            patient_name=patient_name_display,
+            owner_name=owner_name_display,
+            species=species,
+            snapshot_data=snapshot_json,
+            original_patient_id=patient_id,
+            original_test_result_id=result_id,
+        )
+        session.add(archive)
+        await session.flush()  # Ensure archive gets an ID, catch constraint errors early
+
+        # Phase 2: Delete ExamOrders (no cascade from Patient→ExamOrder)
+        await session.execute(delete(ExamOrder).where(ExamOrder.patient_id == patient_id))
+
+        # Phase 3: Delete Patient (ORM cascade deletes TestResults → LabValues + Images)
+        patient = await session.get(Patient, patient_id)
+        if patient:
+            await session.delete(patient)
+
+        await session.commit()
+
+        logfire.info(
+            f"Patient {patient_name_display} (id={patient_id}) archived and retired. "
+            f"Archive id={archive.id}"
+        )
+    except Exception as e:
+        await session.rollback()
+        logfire.error(
+            f"Failed to archive patient {patient_name_display} (id={patient_id}): {e}. "
+            f"PDF was generated but patient was NOT deleted."
+        )
+        # PDF still returned — patient stays in DB
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/archive/{archive_id}/pdf")
+async def download_archive_pdf(
+    archive_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Regenerate a PDF from an archived patient snapshot."""
+    archive = await session.get(PatientArchive, archive_id)
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    try:
+        data = json.loads(archive.snapshot_data)
+    except (json.JSONDecodeError, TypeError) as e:
+        logfire.error(f"Corrupted snapshot_data in PatientArchive id={archive_id}: {e}")
+        raise HTTPException(status_code=500, detail="Datos del archivo corruptos")
+
+    pdf_bytes = _report_service.generate_pdf_sync(data)
+
+    patient_name = _sanitize_patient_name(data["patient"].get("name") or "")
+    owner_name_raw = (data["patient"].get("owner_name") or "").strip()
+    owner_name = _sanitize_person_name(owner_name_raw) if owner_name_raw else "Sin_tutor"
+    doctor_name_raw = (data.get("test_result", {}).get("doctor_name") or "").strip()
+    if not doctor_name_raw:
+        doctor_name_raw = (data.get("patient", {}).get("doctor_name") or "").strip()
+    doctor_name = _sanitize_person_name(doctor_name_raw) if doctor_name_raw else "Sin_medico"
+    filename = f"{patient_name}-{owner_name}-{doctor_name}.pdf"
 
     return Response(
         content=pdf_bytes,

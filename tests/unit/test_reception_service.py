@@ -293,15 +293,12 @@ async def test_ozelle_match_finds_existing_patient_by_name(mock_async_session):
         sources_received=[PatientSource.APPSHEET.value],
     )
 
-    # First execute → session_code lookup → None (no match)
-    # Second execute → Ozelle name query → returns existing_patient
-    empty_result = MagicMock()
-    empty_result.scalar_one_or_none.return_value = None
-
+    # After fix: session_code is None → lookup skipped.
+    # Only the Ozelle name query runs → set up .all() returning [existing_patient].
     ozelle_result = MagicMock()
-    ozelle_result.scalars.return_value.first.return_value = existing_patient
+    ozelle_result.scalars.return_value.all.return_value = [existing_patient]
 
-    mock_async_session.execute = AsyncMock(side_effect=[empty_result, ozelle_result])
+    mock_async_session.execute = AsyncMock(side_effect=[ozelle_result])
 
     # Mock _find_existing to ensure it is NOT called (Ozelle match returns early)
     mp = pytest.MonkeyPatch()
@@ -357,15 +354,12 @@ async def test_ozelle_match_does_not_overwrite_demographics(mock_async_session):
         sources_received=[PatientSource.APPSHEET.value],
     )
 
-    # First execute → session_code lookup → None
-    # Second execute → Ozelle name query → returns existing_patient
-    empty_result = MagicMock()
-    empty_result.scalar_one_or_none.return_value = None
-
+    # After fix: session_code is None → lookup skipped.
+    # Only the Ozelle name query runs → set up .all() returning [existing_patient].
     ozelle_result = MagicMock()
-    ozelle_result.scalars.return_value.first.return_value = existing_patient
+    ozelle_result.scalars.return_value.all.return_value = [existing_patient]
 
-    mock_async_session.execute = AsyncMock(side_effect=[empty_result, ozelle_result])
+    mock_async_session.execute = AsyncMock(side_effect=[ozelle_result])
 
     # Mock _find_existing to ensure it is NOT called
     mp = pytest.MonkeyPatch()
@@ -426,16 +420,12 @@ async def test_ozelle_match_fallthrough_when_name_does_not_match(mock_async_sess
         sources_received=[PatientSource.APPSHEET.value],
     )
 
-    # First execute → session_code lookup → None (no match)
-    # Second execute → Ozelle name query → None (name "rex" not found)
-    empty_result = MagicMock()
-    empty_result.scalar_one_or_none.return_value = None
-
+    # After fix: session_code is None → lookup skipped.
+    # Only Ozelle name query runs → set up .all() returning [] (no match).
     ozelle_no_match = MagicMock()
-    ozelle_no_match.scalar_one_or_none.return_value = None
-    ozelle_no_match.scalars.return_value.first.return_value = None
+    ozelle_no_match.scalars.return_value.all.return_value = []
 
-    mock_async_session.execute = AsyncMock(side_effect=[empty_result, ozelle_no_match])
+    mock_async_session.execute = AsyncMock(side_effect=[ozelle_no_match])
 
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=existing_patient))
@@ -482,13 +472,12 @@ async def test_fujifilm_merge_guard_protects_demographics(mock_async_session):
         sources_received=[PatientSource.APPSHEET.value],
     )
 
-    # First execute → session_code lookup → None
-    # Second execute → Fuji name query → None (fuji_match doesn't find)
-    empty_result = MagicMock()
-    empty_result.scalar_one_or_none.return_value = None
-    empty_result.scalars.return_value.first.return_value = None
+    # After fix: session_code is None → lookup skipped.
+    # Fujifilm name query → .all() returns [] (no name match) → falls through.
+    fuji_no_match = MagicMock()
+    fuji_no_match.scalars.return_value.all.return_value = []
 
-    mock_async_session.execute = AsyncMock(side_effect=[empty_result, empty_result])
+    mock_async_session.execute = AsyncMock(side_effect=[fuji_no_match])
 
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=existing_patient))
@@ -545,3 +534,442 @@ class TestSanitizePatientAge:
         """has_age=True, age_value=None → all become None/False (inconsistent DB data)."""
         result = _sanitize_patient_age(True, None, "años", "2 años")
         assert result == (False, None, None, None)
+
+
+# ── Task 2.5: raw_string must NOT serve as session_code fallback ────────────
+
+
+def _make_no_match_execute_result() -> MagicMock:
+    """Return a mock execute result where nothing matches (both lookup styles)."""
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    result.scalars.return_value.first.return_value = None
+    return result
+
+
+@pytest.mark.asyncio
+async def test_raw_string_not_used_as_session_code_fallback(mock_async_session):
+    """When session_code is None, raw_string must NOT be used as session_code lookup.
+
+    GIVEN a raw_string that looks like a session_code (e.g., "M5")
+    WHEN session_code is None
+    THEN the system skips session_code lookup entirely
+    AND proceeds to name-based fallback matching.
+    """
+    service = ReceptionService()
+
+    # Use a counting side_effect to verify execute call count.
+    # Before fix (bug): execute is called TWICE — session_code lookup with
+    # raw_string fallback + Ozelle name query → call_count == 2.
+    # After fix: session_code is None → lookup skipped → execute called ONCE
+    # (Ozelle name query only) → call_count == 1.
+    call_count = 0
+
+    async def counting_execute(stmt):
+        nonlocal call_count
+        call_count += 1
+        return _make_no_match_execute_result()
+
+    mock_async_session.execute = AsyncMock(side_effect=counting_execute)
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mock_register = AsyncMock(return_value=MockBaulResult(
+            patient_id=99, created=True,
+            patient=MagicMock(name="M5 Test Name"),
+        ))
+        mp.setattr(service._baul, "register", mock_register)
+
+        raw_input = RawPatientInput(
+            raw_string="M5 Test Name Canino 3a Owner",
+            session_code=None,  # No session code — must NOT fall back to raw_string
+            source=PatientSource.LIS_OZELLE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        # Must create a NEW patient — not match by raw_string "M5"
+        assert result.created is True
+        assert result.patient_id == 99
+
+        # After fix: execute called exactly ONCE (only Ozelle name query).
+        # Before fix (bug): execute called TWICE — this assertion FAILS (RED).
+        assert call_count == 1, (
+            f"Expected 1 execute call (name query only), got {call_count}. "
+            f"raw_string is being used as session_code fallback!"
+        )
+
+
+# ── Task 2.2: Fujifilm name fallback — 0, 1, 2+ matches ────────────────────
+
+
+def _make_fujifilm_result(matches: list) -> MagicMock:
+    """Return a mock execute result whose scalars().all() returns `matches`."""
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = matches
+    return result
+
+
+@pytest.mark.asyncio
+async def test_fujifilm_name_match_zero_patients_creates_new(mock_async_session):
+    """Fujifilm: 0 name matches → fallthrough to creation (created=True)."""
+    service = ReceptionService()
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_fujifilm_result([])]  # 0 matches by name
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mp.setattr(service._baul, "register", AsyncMock(return_value=MockBaulResult(
+            patient_id=50, created=True, patient=MagicMock(name="Fuji Zero"),
+        )))
+
+        raw_input = RawPatientInput(
+            raw_string="Fuji Zero",
+            source=PatientSource.LIS_FUJIFILM,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is True
+        assert result.patient_id == 50
+
+
+@pytest.mark.asyncio
+async def test_fujifilm_name_match_one_patient_reuses(mock_async_session):
+    """Fujifilm: exactly 1 name match → reuse existing patient (created=False)."""
+    service = ReceptionService()
+
+    existing = Patient(
+        id=42,
+        name="Kiara",
+        species="Canino",
+        sex="Hembra",
+        owner_name="Owner",
+        has_age=True,
+        age_value=2,
+        age_unit="años",
+        age_display="2 años",
+        source=PatientSource.LIS_FUJIFILM.value,
+        normalized_name="kiara",
+        normalized_owner="owner",
+        sources_received=[PatientSource.LIS_FUJIFILM.value],
+    )
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_fujifilm_result([existing])]  # 1 match
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock())
+        mp.setattr(service._baul, "register", AsyncMock())
+
+        raw_input = RawPatientInput(
+            raw_string="Kiara",
+            source=PatientSource.LIS_FUJIFILM,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is False
+        assert result.patient_id == 42
+        assert result.patient.name == "Kiara"
+
+        # Fujifilm fallback match must NOT call _find_existing
+        service._baul._find_existing.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fujifilm_name_match_two_plus_patients_creates_new(mock_async_session):
+    """Fujifilm: 2+ name matches → create new patient (NO cross-contamination)."""
+    service = ReceptionService()
+
+    p1 = Patient(
+        id=10, name="Kiara", species="Canino", sex="Hembra",
+        owner_name="Owner A", has_age=True, age_value=3, age_unit="años",
+        age_display="3 años", source=PatientSource.MANUAL.value,
+        normalized_name="kiara", normalized_owner="owner a",
+        sources_received=[PatientSource.MANUAL.value],
+    )
+    p2 = Patient(
+        id=20, name="Kiara", species="Felino", sex="Macho",
+        owner_name="Owner B", has_age=True, age_value=5, age_unit="años",
+        age_display="5 años", source=PatientSource.APPSHEET.value,
+        normalized_name="kiara", normalized_owner="owner b",
+        sources_received=[PatientSource.APPSHEET.value],
+    )
+
+    # 2 matches — must NOT pick either (that would be cross-contamination)
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_fujifilm_result([p1, p2])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mp.setattr(service._baul, "register", AsyncMock(return_value=MockBaulResult(
+            patient_id=99, created=True, patient=MagicMock(name="Kiara"),
+        )))
+
+        raw_input = RawPatientInput(
+            raw_string="Kiara",
+            source=PatientSource.LIS_FUJIFILM,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        # CRITICAL: 2+ matches → create NEW patient, NOT cross-contaminate
+        assert result.created is True
+        assert result.patient_id == 99
+
+        # Must NOT use patient 10 or 20 (cross-contamination prevention)
+        assert result.patient_id != 10
+        assert result.patient_id != 20
+
+
+# ── Task 2.3: Ozelle name fallback — 0, 1, 2+ matches ─────────────────────
+
+
+def _make_ozelle_result(matches: list) -> MagicMock:
+    """Return a mock execute result whose scalars().all() returns `matches`."""
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = matches
+    return result
+
+
+@pytest.mark.asyncio
+async def test_ozelle_name_match_zero_patients_creates_new(mock_async_session):
+    """Ozelle: 0 name matches → fallthrough → create new patient."""
+    service = ReceptionService()
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_ozelle_result([])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mp.setattr(service._baul, "register", AsyncMock(return_value=MockBaulResult(
+            patient_id=55, created=True, patient=MagicMock(name="Ozelle Zero"),
+        )))
+
+        raw_input = RawPatientInput(
+            raw_string="Rex Canino 3a Owner",
+            source=PatientSource.LIS_OZELLE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is True
+        assert result.patient_id == 55
+
+
+@pytest.mark.asyncio
+async def test_ozelle_name_match_one_patient_reuses(mock_async_session):
+    """Ozelle: exactly 1 name match → reuse existing patient (created=False)."""
+    service = ReceptionService()
+
+    existing = Patient(
+        id=77,
+        name="Rocky",
+        species="Canino",
+        sex="Macho",
+        owner_name="Carlos",
+        has_age=True,
+        age_value=4,
+        age_unit="años",
+        age_display="4 años",
+        source=PatientSource.APPSHEET.value,
+        normalized_name="rocky",
+        normalized_owner="carlos",
+        sources_received=[PatientSource.APPSHEET.value],
+    )
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_ozelle_result([existing])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock())
+        mp.setattr(service._baul, "register", AsyncMock())
+
+        raw_input = RawPatientInput(
+            raw_string="Rocky Canino 4a Carlos",
+            source=PatientSource.LIS_OZELLE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is False
+        assert result.patient_id == 77
+        assert result.patient.name == "Rocky"
+
+        # Ozelle fallback match must NOT call _find_existing
+        service._baul._find_existing.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ozelle_name_match_two_plus_patients_creates_new(mock_async_session):
+    """Ozelle: 2+ name matches → create new patient (NO cross-contamination)."""
+    service = ReceptionService()
+
+    p1 = Patient(
+        id=30, name="Luna", species="Canino", sex="Hembra",
+        owner_name="Owner A", has_age=True, age_value=2, age_unit="años",
+        age_display="2 años", source=PatientSource.MANUAL.value,
+        normalized_name="luna", normalized_owner="owner a",
+        sources_received=[PatientSource.MANUAL.value],
+    )
+    p2 = Patient(
+        id=40, name="Luna", species="Felino", sex="Hembra",
+        owner_name="Owner B", has_age=True, age_value=7, age_unit="años",
+        age_display="7 años", source=PatientSource.APPSHEET.value,
+        normalized_name="luna", normalized_owner="owner b",
+        sources_received=[PatientSource.APPSHEET.value],
+    )
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_ozelle_result([p1, p2])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mp.setattr(service._baul, "register", AsyncMock(return_value=MockBaulResult(
+            patient_id=99, created=True, patient=MagicMock(name="Luna"),
+        )))
+
+        raw_input = RawPatientInput(
+            raw_string="Luna Canino 2a Owner A",
+            source=PatientSource.LIS_OZELLE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is True
+        assert result.patient_id == 99
+        assert result.patient_id != 30
+        assert result.patient_id != 40
+
+
+# ── Task 2.4: File source name fallback ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_file_name_match_zero_patients_creates_new(mock_async_session):
+    """File source: 0 name matches → create new patient."""
+    service = ReceptionService()
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_ozelle_result([])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mp.setattr(service._baul, "register", AsyncMock(return_value=MockBaulResult(
+            patient_id=88, created=True, patient=MagicMock(name="File Zero"),
+        )))
+
+        raw_input = RawPatientInput(
+            raw_string="Max Canino 3a Pedro",
+            source=PatientSource.LIS_FILE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is True
+        assert result.patient_id == 88
+
+
+@pytest.mark.asyncio
+async def test_file_name_match_one_patient_reuses(mock_async_session):
+    """File source: exactly 1 name match → reuse existing patient."""
+    service = ReceptionService()
+
+    existing = Patient(
+        id=66,
+        name="Max",
+        species="Canino",
+        sex="Macho",
+        owner_name="Pedro",
+        has_age=True,
+        age_value=6,
+        age_unit="años",
+        age_display="6 años",
+        source=PatientSource.APPSHEET.value,
+        normalized_name="max",
+        normalized_owner="pedro",
+        sources_received=[PatientSource.APPSHEET.value],
+    )
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_ozelle_result([existing])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock())
+        mp.setattr(service._baul, "register", AsyncMock())
+
+        raw_input = RawPatientInput(
+            raw_string="Max Canino 6a Pedro",
+            source=PatientSource.LIS_FILE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is False
+        assert result.patient_id == 66
+        assert result.patient.name == "Max"
+
+        service._baul._find_existing.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_file_name_match_two_plus_patients_creates_new(mock_async_session):
+    """File source: 2+ name matches → create new (NO cross-contamination)."""
+    service = ReceptionService()
+
+    p1 = Patient(
+        id=12, name="Coco", species="Canino", sex="Macho",
+        owner_name="Owner X", has_age=True, age_value=1, age_unit="años",
+        age_display="1 año", source=PatientSource.MANUAL.value,
+        normalized_name="coco", normalized_owner="owner x",
+        sources_received=[PatientSource.MANUAL.value],
+    )
+    p2 = Patient(
+        id=13, name="Coco", species="Canino", sex="Hembra",
+        owner_name="Owner Y", has_age=True, age_value=8, age_unit="años",
+        age_display="8 años", source=PatientSource.APPSHEET.value,
+        normalized_name="coco", normalized_owner="owner y",
+        sources_received=[PatientSource.APPSHEET.value],
+    )
+
+    mock_async_session.execute = AsyncMock(
+        side_effect=[_make_ozelle_result([p1, p2])]
+    )
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(service._baul, "_find_existing", AsyncMock(return_value=None))
+        mp.setattr(service._baul, "register", AsyncMock(return_value=MockBaulResult(
+            patient_id=99, created=True, patient=MagicMock(name="Coco"),
+        )))
+
+        raw_input = RawPatientInput(
+            raw_string="Coco Canino 1a Owner X",
+            source=PatientSource.LIS_FILE,
+            received_at=datetime.now(timezone.utc),
+        )
+
+        result = await service.receive(raw_input, mock_async_session)
+
+        assert result.created is True
+        assert result.patient_id == 99
+        assert result.patient_id != 12
+        assert result.patient_id != 13

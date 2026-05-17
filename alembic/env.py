@@ -19,6 +19,7 @@ from app.shared.models.doctor import Doctor
 from app.shared.models.lab_value import LabValue
 from app.shared.models.patient_image import PatientImage
 from app.shared.models.test_result import TestResult
+from app.shared.models.patient_archive import PatientArchive
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

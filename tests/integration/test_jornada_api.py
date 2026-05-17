@@ -132,3 +132,26 @@ async def test_response_headers(client: AsyncClient):
     content_disp = response.headers.get("content-disposition", "")
     assert content_disp.startswith("attachment")
     assert "resumen-jornada.txt" in content_disp
+
+
+@pytest.mark.asyncio
+async def test_archived_pdf_still_counts_in_jornada(client: AsyncClient):
+    """After downloading a PDF the patient is archived+deleted, but jornada still counts it."""
+    marker_ts = time.time() - 3600
+    with open(SESSION_MARKER, "w") as f:
+        f.write(str(marker_ts))
+
+    # 1. Create a patient and a CHEM result
+    patient_id = await register_patient(client)
+    result_id = await enrich_with_code(client, patient_id, "CHEM", "Perfil Básico")
+
+    # 2. Download the PDF — this archives the patient and cascade-deletes the TestResult
+    pdf_response = await client.get(f"/reports/{result_id}/pdf")
+    assert pdf_response.status_code == 200
+
+    # 3. Jornada resumen should still count the archived exam
+    response = await client.get("/jornada/resumen")
+    assert response.status_code == 200
+    assert "🔬 Perfiles básicos del día" in response.text
+    assert "kitty" in response.text.lower() or "Kitty" in response.text
+    assert "✅ Total: 1 reportes generados" in response.text
