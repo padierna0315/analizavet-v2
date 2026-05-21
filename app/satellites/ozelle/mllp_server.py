@@ -101,6 +101,14 @@ class OzelleMLLPServer:
     async def _process_message(self, hl7_str: str, writer: asyncio.StreamWriter):
         """Parse the HL7 string (for validation) and send ACK."""
         try:
+            # ── Provenance: capture raw HL7 BEFORE parsing ──────────────────
+            try:
+                from app.tasks.provenance_actors import record_ozelle_raw
+
+                record_ozelle_raw.send(hl7_str)
+            except Exception:
+                pass  # Capture failure must never block processing
+
             # We parse it here JUST to validate it's not garbage and detect heartbeats.
             # If it fails, it raises before we enqueue.
             parsed = parse_hl7_message(hl7_str)
