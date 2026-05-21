@@ -1,14 +1,18 @@
-import httpx
+import json
+from datetime import datetime, timezone
 from typing import List, Optional
-from pydantic import BaseModel, Field
-from app.config import settings
 
+import httpx
 import logfire
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.domains.patients.models import Patient
+from app.config import settings
 from app.domains.exam_order.service import ExamOrderService
+from app.domains.patients.models import Patient
+from app.services.provenance_recorder import ProvenanceRecorder
+from app.shared.models.raw_data_log import RawDataSource
 
 
 class AppSheetPatient(BaseModel):
@@ -36,7 +40,9 @@ class AppSheetService:
         self.base_url = f"https://api.appsheet.com/api/v2/apps/{self.app_id}/tables/{self.table_name}/Action"
         self._exam_order_service = ExamOrderService()
 
-    async def fetch_active_patients(self) -> List[AppSheetPatient]:
+    async def fetch_active_patients(
+        self, session: Optional[AsyncSession] = None
+    ) -> List[AppSheetPatient]:
         if not self.api_key or not self.app_id:
             raise ValueError("APPSHEET_API_KEY and APPSHEET_APP_ID must be configured")
 
@@ -44,7 +50,7 @@ class AppSheetService:
             "ApplicationAccessKey": self.api_key,
             "Content-Type": "application/json"
         }
-        
+
         payload = {
             "Action": "Find",
             "Properties": {
@@ -63,7 +69,20 @@ class AppSheetService:
             )
             response.raise_for_status()
             data = response.json()
-            
+
+            # ── Provenance recording: capture raw JSON BEFORE parsing ──────
+            if session is not None:
+                try:
+                    raw_json = json.dumps(data)
+                    await ProvenanceRecorder.record_sync(
+                        session=session,
+                        source=RawDataSource.APPSHEET,
+                        raw_data=raw_json,
+                        received_at=datetime.now(timezone.utc),
+                    )
+                except Exception:
+                    pass  # Capture failure must never block processing
+
             # AppSheet returns a list of rows
             if not isinstance(data, list):
                 # Sometimes AppSheet returns a dict with "Rows" or similar depending on the exact action

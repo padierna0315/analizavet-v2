@@ -113,6 +113,14 @@ class FujifilmAdapter(SourceAdapter):
         """Parse a Fujifilm message and enqueue readings to Dramatiq."""
         logfire.debug("Fujifilm mensaje crudo recibido: {raw}", raw=raw)
 
+        # ── Provenance: capture raw message BEFORE parsing ────────────────
+        try:
+            from app.tasks.provenance_actors import record_fujifilm_raw
+
+            record_fujifilm_raw.send(raw)
+        except Exception:
+            pass  # Capture failure must never block processing
+
         readings = parse_fujifilm_message(raw)
 
         if not readings:
